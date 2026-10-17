@@ -105,7 +105,7 @@ def main() -> int:
                 output.write_text(assembly, encoding="ascii")
             outputs.append(output)
     except (OSError, CompileError, UnicodeEncodeError) as exc:
-        print(f"ti84py: error: {exc}", file=sys.stderr)
+        print(f"py2ez80: error: {exc}", file=sys.stderr)
         return 1
 
     for output in outputs:

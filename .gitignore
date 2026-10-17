@@ -20,6 +20,9 @@ dist/
 *.8xv
 *.8ek
 
+# Local compiler example workspace
+/examples/
+
 # Editor and operating-system metadata
 .vscode/
 .idea/

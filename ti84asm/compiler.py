@@ -129,6 +129,10 @@ class Compiler:
                 self.emit("    pop hl")
                 self.binary(node.op)
             self.emit(f"    ld ({target}),hl")
+        elif (isinstance(node, ast.Expr) and isinstance(node.value, ast.Constant)
+              and isinstance(node.value.value, str)):
+            # Module and statement docstrings have no runtime effect here.
+            return
         elif isinstance(node, ast.Expr) and isinstance(node.value, ast.Call):
             self.call(node.value)
         elif isinstance(node, ast.If):
