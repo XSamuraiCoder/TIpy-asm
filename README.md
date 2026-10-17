@@ -1,33 +1,47 @@
-# TIpy-asm: Flash App backend upgrade
+# TI84py
 
-## What changed
-* `ti84asm/cgen.py`: Python-subset -> C compiler used by `flash-app`. `flashapp.py` drives the CEdev build.
-* `ti84asm/flash_ce.py`: Flash App library call table and native runtime. Runtime gained lists, strings, floor-div/mod, shifts, pow, print, sin/cos, get_pixel, and non-blocking keys.
-* `ti84libs/keyboard.py`: full GetCSC key table (49 keys, `KEY_*` or bare names).
-* `ti84libs/flash_ce.py`: compatibility exports for older imports; it shares the runtime in `ti84asm/flash_ce.py`.
+TI84py is a command-line compiler for a Python-like language targeting TI-83+
+and TI-84 Plus calculators. It compiles source to Z80 assembly for classic
+models and eZ80 assembly or Flash Apps for the TI-84 Plus CE. The `ti84libs`
+package provides the calculator libraries available to programs compiled by
+the compiler.
 
-## Language (Flash App target)
-int / bool / str / list-of-int; `def` (annotations optional, recursion, defaults, kwargs, `global`);
-`if/elif/else`, `while`, `for` over `range()`/list/str, `break`/`continue`, `a if c else b`;
-`+ - * // % ** << >> & | ^ ~ and or not`, chained compares, `in`/`not in`; tuple assign/swap;
-`[1,2,3]`, `[0]*n` (n constant), indexing/negative indexes, `len sum min max abs int bool ord`;
-`print(..., sep=, end=)` (drawn on screen; waits for a key at exit).
+## Install
 
-Limits: 32-bit ints (wrap), no floats, no classes/lambdas/comprehensions/try/with, no string concatenation,
-lists are fixed-size and hold ints. Each list literal is one static buffer (re-running it reuses the buffer).
+```powershell
+python -m pip install .
+```
 
-See [compiler reference notes](docs/compiler-reference.md) for design comparisons
-with CEdev, ICE, and Axe Parser.
+This installs the `ti84py` command. CE assembly builds use `fasmg`; classic
+assembly builds use SPASM-ng. The Flash App target uses CEdev. Pass an
+assembler path with `--ce-assembler` or `--classic-assembler` when it is not on
+`PATH`.
 
-For CE Flash Apps, `ti84py flash-app source.py --project-dir PROJECT` builds an
-installer package. Add `--optimize speed` (default) or `--optimize size` to
-choose the CE compiler optimization level.
+## Commands
 
-For a regular CE assembly program (`.8xp`) that exercises the current
-assembly-target libraries, build the demo with:
+Compile Python-like source to assembly:
 
-    python -m ti84asm build examples/library_test.py --target ce --name LIBTEST
+```powershell
+ti84py compile examples\library_test.py --target ce
+```
 
-It covers graphics, keyboard input, AppVar storage, and integer math. The
-`file`, `random`, and `graph` APIs currently belong to the Flash App backend
-and are not available to the ordinary assembly-program compiler.
+Build a calculator program:
+
+```powershell
+ti84py build examples\library_test.py --target ce --name LIBTEST
+```
+
+Build a CE Flash App and installer using a CEdev project template:
+
+```powershell
+ti84py flash-app examples\flash_libraries_demo.py --project-dir path\to\project
+```
+
+Run `ti84py --help` or `ti84py <command> --help` for options.
+
+## Repository layout
+
+- `ti84asm/` contains the compiler, code generators, CLI, and build drivers.
+- `ti84libs/` contains built-in calculator libraries.
+- `examples/` contains Python-like programs demonstrating compiler features.
+- `docs/` contains language and compiler reference material.
