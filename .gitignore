@@ -1,6 +1,27 @@
-
+# Upstream compiler build output
 *.exe
 *.obj
 *.res
-*.8xp
 CEdev/
+
+# Python bytecode and local environments
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Python package build output
+build/
+dist/
+*.egg-info/
+
+# Generated calculator programs and variables
+*.8xp
+*.8xv
+*.8ek
+
+# Editor and operating-system metadata
+.vscode/
+.idea/
+Thumbs.db
+Desktop.ini
