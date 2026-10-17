@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ti84py-asm"
+version = "0.1.0"
+description = "Compile a small Python subset to TI-84 Z80/eZ80 assembly"
+readme = "README.md"
+requires-python = ">=3.10"
+
+[project.scripts]
+ti84py = "ti84asm.cli:main"
+
+[tool.setuptools]
+packages = ["ti84asm", "ti84libs"]
