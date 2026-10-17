@@ -56,20 +56,32 @@ def _emit_fill_rect(compiler, x: int, y: int, width: int, height: int, color: in
         for row in range(y0, y1):
             _emit_line(compiler, x0, row, x1 - 1, row, 0 if color == 0 else 1)
         return
-    for row in range(y0, y1):
-        for chunk_x in range(x0, x1, 255):
-            count = min(255, x1 - chunk_x)
-            address = 0xD40000 + (row * screen_width + chunk_x) * 2
-            loop = compiler.label("gfx_fill_x")
-            compiler.emit(f"    ld hl,${address:06X}")
-            compiler.emit(f"    ld de,${color & 0xFFFF:04X}")
-            compiler.emit(f"    ld b,{count}")
-            compiler.emit(loop + ":")
-            compiler.emit("    ld (hl),e")
-            compiler.emit("    inc hl")
-            compiler.emit("    ld (hl),d")
-            compiler.emit("    inc hl")
-            compiler.emit(f"    djnz {loop}")
+    rect_width = x1 - x0
+    row_stride = screen_width * 2 - rect_width * 2
+    address = 0xD40000 + (y0 * screen_width + x0) * 2
+    row_loop = compiler.label("gfx_fill_y")
+    compiler.emit(f"    ld hl,${address:06X}")
+    compiler.emit(f"    ld de,${color & 0xFFFF:04X}")
+    compiler.emit(f"    ld b,{y1 - y0}")
+    compiler.emit(row_loop + ":")
+    for chunk_x in range(x0, x1, 255):
+        count = min(255, x1 - chunk_x)
+        pixel_loop = compiler.label("gfx_fill_x")
+        compiler.emit(f"    ld c,{count}")
+        compiler.emit(pixel_loop + ":")
+        compiler.emit("    ld (hl),e")
+        compiler.emit("    inc hl")
+        compiler.emit("    ld (hl),d")
+        compiler.emit("    inc hl")
+        compiler.emit("    dec c")
+        compiler.emit(f"    jr nz,{pixel_loop}")
+    if row_stride:
+        # Preserve the RGB565 value in DE while advancing HL to the next row.
+        compiler.emit("    push de")
+        compiler.emit(f"    ld de,{row_stride}")
+        compiler.emit("    add hl,de")
+        compiler.emit("    pop de")
+    compiler.emit(f"    djnz {row_loop}")
 
 
 def _emit_flush(compiler) -> None:

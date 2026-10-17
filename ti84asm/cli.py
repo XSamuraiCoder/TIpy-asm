@@ -18,7 +18,7 @@ from .flashapp import build_flash_app
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        prog="ti84py",
+        prog="py2ez80",
         description="Compile Python-like source to TI-84 assembly or calculator programs.",
         epilog="This compiler builds calculator files; it does not run programs on a calculator.",
     )

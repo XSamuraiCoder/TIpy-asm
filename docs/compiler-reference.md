@@ -39,6 +39,8 @@ changing source behavior.
 * The CE graph buffer expands its 8-bit pixels through a compile-time RGB565
   palette lookup table, avoiding per-pixel channel expansion arithmetic on
   every buffer copy.
+* CE assembly `graphics.fill_rect()` emits one runtime row loop and bounded
+  pixel chunks, so generated code size no longer grows with rectangle height.
 * The CE runtime and call table have one implementation in
   `ti84asm/flash_ce.py`; `ti84libs/flash_ce.py` is only a compatibility shim.
 
