@@ -80,3 +80,20 @@ def run(args: argparse.Namespace) -> list[Path]:
     if args.output is None:
         raise CompileError("convfont needs an output file (-o)")
     return [convert(args.font, args.output, args.oformat, args.name or args.output.stem, args.size)]
+
+
+def run_with_args() -> int:
+    import sys
+    parser = argparse.ArgumentParser(
+        prog="convfont",
+        description="Convert a TTF/OTF font (or .fnt) to an AppVar or C/asm/ICE arrays (CEdev's convfont)",
+    )
+    add_arguments(parser)
+    try:
+        args = parser.parse_args()
+        for written in run(args):
+            print(f"Wrote {written}")
+        return 0
+    except Exception as exc:
+        print(f"convfont: error: {exc}", file=sys.stderr)
+        return 1

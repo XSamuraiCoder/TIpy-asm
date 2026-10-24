@@ -16,6 +16,9 @@ images = ["Pillow>=10"]
 [project.scripts]
 tipy-asm = "ti84asm.cli:main"
 ti84py = "ti84asm.cli:main"
+convbin = "ti84asm.convbin:run_with_args"
+convimg = "ti84asm.convimg:run_with_args"
+convfont = "ti84asm.convfont:run_with_args"
 
 [tool.setuptools]
 packages = ["ti84asm", "ti84libs", "ti84"]

@@ -11,6 +11,7 @@ import tempfile
 from pathlib import Path
 
 from . import convbin, convfont, convimg
+from .cedev_config import run as cedev_config_run
 from .compiler import Compiler
 from .errors import CompileError
 from .fasmg import ensure_ce_includes, ensure_classic_include_directory, ensure_fasmg
@@ -59,6 +60,11 @@ def main() -> int:
     convbin.add_arguments(commands.add_parser("convbin", help="convert binary data to TI files or C/asm/ICE arrays (like CEdev's convbin)"))
     convimg.add_arguments(commands.add_parser("convimg", help="convert an image to an AppVar or C/asm/ICE pixel data (like CEdev's convimg)"))
     convfont.add_arguments(commands.add_parser("convfont", help="convert a TTF/OTF font (or .fnt) to an AppVar or C/asm/ICE arrays using cefont"))
+    cedev_config_parser = commands.add_parser("cedev-config", help="get CEdev toolchain configuration (like CEdev's cedev-config)")
+    cedev_config_group = cedev_config_parser.add_mutually_exclusive_group(required=True)
+    cedev_config_group.add_argument("--version", action="store_true", help="print toolchain version")
+    cedev_config_group.add_argument("--prefix", action="store_true", help="print installation prefix")
+    cedev_config_group.add_argument("--makefile", action="store_true", help="print core toolchain makefile path")
     clean_parser = commands.add_parser("clean", help="delete the project's build output folder (bindir)")
     clean_parser.add_argument("--project", type=Path, metavar="DIR",
                               help="project folder containing pyproject.toml (default: current folder)")
@@ -86,6 +92,21 @@ def main() -> int:
         if args.command == "convfont":
             for written in convfont.run(args):
                 print(f"Wrote {written}")
+            return 0
+        if args.command == "cedev-config":
+            option_map = {
+                "version": "--version",
+                "prefix": "--prefix",
+                "makefile": "--makefile"
+            }
+            # Find which option was set
+            option = None
+            for key, value in vars(args).items():
+                if key in option_map and value:
+                    option = option_map[key]
+                    break
+            if option:
+                print(cedev_config_run([option]))
             return 0
         if args.command == "clean":
             removed = clean_project(load_project(args.project or Path.cwd()))

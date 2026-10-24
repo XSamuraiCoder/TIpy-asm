@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import ast
 
-from . import graphics, keyboard, math as mathlib, storage
+from . import font, fileioc, graphics, keyboard, math as mathlib, sprite, storage
 from ti84asm.errors import CompileError
 
 
@@ -18,6 +18,12 @@ def emit_call(compiler, node: ast.Call) -> None:
         storage.emit_call(compiler, node)
     elif module == "ti84.keyboard":
         keyboard.emit_call(compiler, node)
+    elif module == "ti84.font":
+        font.emit_call(compiler, node)
+    elif module == "ti84.sprite":
+        sprite.emit_call(compiler, node)
+    elif module == "ti84.fileioc":
+        fileioc.emit_call(compiler, node)
     else:
         raise CompileError("import a library before calling it")
 
@@ -35,6 +41,15 @@ def emit_expression(compiler, node: ast.Call) -> None:
     if module == "ti84.math":
         mathlib.emit_expression(compiler, node)
         return
+    if module == "ti84.font":
+        font.emit_call(compiler, node)
+        return
+    if module == "ti84.sprite":
+        sprite.emit_call(compiler, node)
+        return
+    if module == "ti84.fileioc":
+        fileioc.emit_call(compiler, node)
+        return
     raise CompileError("unsupported library expression")
 
 
@@ -44,5 +59,8 @@ def emit_attribute(compiler, node: ast.Attribute) -> None:
         return
     if isinstance(node.value, ast.Name) and compiler.modules.get(node.value.id) == "ti84.keyboard":
         keyboard.emit_expression(compiler, node)
+        return
+    if isinstance(node.value, ast.Name) and compiler.modules.get(node.value.id) == "ti84.font":
+        font.emit_call(compiler, node)
         return
     raise CompileError("unsupported library constant")

@@ -94,6 +94,44 @@ LIBRARY_C = {
         name: (f"=ti84py_graph_{name}()", [], "v")
         for name in GRAPH_API
     },
+    "ti84.font": {
+        "load": ("ti84py_font_load", [("name", "n", None)], "v"),
+        "draw_char": ("ti84py_font_draw_char", _p("font", "char", "x", "y"), "v"),
+        "draw_text": ("ti84py_font_draw_text", _p("font", "x", "y"), "v"),
+        "char_width": ("ti84py_font_char_width", _p("font", "char", color=False), "i"),
+        "string_width": ("ti84py_font_string_width", _p("font", color=False), "i"),
+        "height": ("ti84py_font_height", _p("font", color=False), "i"),
+        "baseline": ("ti84py_font_baseline", _p("font", color=False), "i"),
+        "BLACK": ("=0x0000", [], "i"),
+        "WHITE": ("=0xFFFF", [], "i"),
+        "RED": ("=0xF800", [], "i"),
+        "GREEN": ("=0x07E0", [], "i"),
+        "BLUE": ("=0x001F", [], "i"),
+        "YELLOW": ("=0xFFE0", [], "i"),
+        "CYAN": ("=0x07FF", [], "i"),
+        "MAGENTA": ("=0xF81F", [], "i"),
+        "ORANGE": ("=0xFD20", [], "i"),
+        "PURPLE": ("=0x801F", [], "i"),
+        "GRAY": ("=0x8410", [], "i"),
+    },
+    "ti84.sprite": {
+        "load": ("ti84py_sprite_load", [("name", "n", None)], "v"),
+        "draw": ("ti84py_sprite_draw", _p("sprite", "x", "y"), "v"),
+        "draw_scale": ("ti84py_sprite_draw_scale", _p("sprite", "x", "y", "scale_x", "scale_y"), "v"),
+        "dimensions": ("ti84py_sprite_dimensions", _p("sprite", color=False), "i"),
+        "FORMAT_RGB565": ("=0", [], "i"),
+        "FORMAT_PALETTE": ("=1", [], "i"),
+    },
+    "ti84.fileioc": {
+        "open": ("ti84py_fileioc_open", [("name", "n", None)], "i"),
+        "close": ("ti84py_fileioc_close", _p("handle", color=False), "v"),
+        "read": ("ti84py_fileioc_read", _p("handle", "size"), "i"),
+        "write": ("ti84py_fileioc_write", _p("handle", "data"), "v"),
+        "size": ("ti84py_fileioc_size", [("name", "n", None)], "i"),
+        "exists": ("ti84py_fileioc_exists", [("name", "n", None)], "b"),
+        "delete": ("ti84py_fileioc_delete", [("name", "n", None)], "v"),
+        "create": ("ti84py_fileioc_create", [("name", "n", None), ("size", "i", None)], "v"),
+    },
 }
 
 # Back-compat arity table: module -> name -> (min args, max args).

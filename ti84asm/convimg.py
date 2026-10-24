@@ -116,3 +116,20 @@ def run(args: argparse.Namespace) -> list[Path]:
         raise CompileError("convimg needs an output file (-o)")
     return convert(args.image, args.output, args.oformat, args.name or args.output.stem,
                    args.mode, args.palette_size)
+
+
+def run_with_args() -> int:
+    import sys
+    parser = argparse.ArgumentParser(
+        prog="convimg",
+        description="Convert an image to an AppVar or C/asm/ICE pixel data (CEdev's convimg)",
+    )
+    add_arguments(parser)
+    try:
+        args = parser.parse_args()
+        for written in run(args):
+            print(f"Wrote {written}")
+        return 0
+    except Exception as exc:
+        print(f"convimg: error: {exc}", file=sys.stderr)
+        return 1

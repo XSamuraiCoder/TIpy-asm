@@ -18,8 +18,8 @@ if _PACKAGE_ROOT not in sys.path:
 
 from ti84libs import emit_attribute, emit_call, emit_expression
 
-_ASSEMBLY_LIBRARIES = {"graphics", "storage", "keyboard", "math"}
-_FLASH_APP_ONLY_LIBRARIES = {"file", "graph", "random"}
+_ASSEMBLY_LIBRARIES = {"graphics", "storage", "keyboard", "math", "font", "sprite"}
+_FLASH_APP_ONLY_LIBRARIES = {"file", "graph", "random", "fileioc"}
 
 
 class Compiler:
@@ -186,7 +186,7 @@ class Compiler:
                         "use the flash-app command"
                     )
                 if item.name not in {f"ti84.{name}" for name in _ASSEMBLY_LIBRARIES} or not item.asname:
-                    raise CompileError("library imports use ti84.graphics, ti84.storage, ti84.keyboard, or ti84.math with an alias")
+                    raise CompileError("library imports use ti84.graphics, ti84.storage, ti84.keyboard, ti84.math, ti84.font, or ti84.sprite with an alias")
                 self.modules[item.asname] = item.name
         elif isinstance(node, ast.ImportFrom) and node.module == "ti84":
             if self.control_depth:

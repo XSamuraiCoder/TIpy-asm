@@ -189,3 +189,20 @@ def run(args: argparse.Namespace) -> list[Path]:
     return convert(ConvbinJob(inputs=list(args.inputs), output=args.output, oformat=args.oformat, name=args.name,
                               archive=args.archive, uppercase=args.uppercase, append=args.append,
                               max_var_size=args.maxvarsize, comment=args.comment))
+
+
+def run_with_args() -> int:
+    import sys
+    parser = argparse.ArgumentParser(
+        prog="convbin",
+        description="Convert binary data to TI files or C/asm/ICE arrays (CEdev's convbin)",
+    )
+    add_arguments(parser)
+    try:
+        args = parser.parse_args()
+        for written in run(args):
+            print(f"Wrote {written}")
+        return 0
+    except Exception as exc:
+        print(f"convbin: error: {exc}", file=sys.stderr)
+        return 1
