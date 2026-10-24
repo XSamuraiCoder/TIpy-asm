@@ -132,6 +132,27 @@ LIBRARY_C = {
         "delete": ("ti84py_fileioc_delete", [("name", "n", None)], "v"),
         "create": ("ti84py_fileioc_create", [("name", "n", None), ("size", "i", None)], "v"),
     },
+    "ti84.color": {
+        "from_rgb": ("ti84py_color_from_rgb", _p("r", "g", "b", color=False), "i"),
+        "to_rgb": ("ti84py_color_to_rgb", _p("color", color=False), "i"),
+        "to_grayscale": ("ti84py_color_to_grayscale", _p("color", color=False), "i"),
+        "to_mono": ("ti84py_color_to_mono", _p("color", color=False), "i"),
+        "from_mono": ("ti84py_color_from_mono", _p("mono", color=False), "i"),
+        "invert": ("ti84py_color_invert", _p("color", color=False), "i"),
+        "blend": ("ti84py_color_blend", _p("color1", "color2", "factor", color=False), "i"),
+        "is_valid": ("ti84py_color_is_valid", _p("color", color=False), "b"),
+        "BLACK": ("=0x0000", [], "i"),
+        "WHITE": ("=0xFFFF", [], "i"),
+        "RED": ("=0xF800", [], "i"),
+        "GREEN": ("=0x07E0", [], "i"),
+        "BLUE": ("=0x001F", [], "i"),
+        "YELLOW": ("=0xFFE0", [], "i"),
+        "CYAN": ("=0x07FF", [], "i"),
+        "MAGENTA": ("=0xF81F", [], "i"),
+        "ORANGE": ("=0xFD20", [], "i"),
+        "PURPLE": ("=0x801F", [], "i"),
+        "GRAY": ("=0x8410", [], "i"),
+    },
 }
 
 # Back-compat arity table: module -> name -> (min args, max args).

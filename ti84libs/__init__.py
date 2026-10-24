@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import ast
 
-from . import font, fileioc, graphics, keyboard, math as mathlib, sprite, storage
+from . import color, fileioc, font, graphics, keyboard, math as mathlib, sprite, storage
 from ti84asm.errors import CompileError
 
 
@@ -50,6 +50,9 @@ def emit_expression(compiler, node: ast.Call) -> None:
     if module == "ti84.fileioc":
         fileioc.emit_call(compiler, node)
         return
+    if module == "ti84.color":
+        color.emit_call(compiler, node)
+        return
     raise CompileError("unsupported library expression")
 
 
@@ -62,5 +65,8 @@ def emit_attribute(compiler, node: ast.Attribute) -> None:
         return
     if isinstance(node.value, ast.Name) and compiler.modules.get(node.value.id) == "ti84.font":
         font.emit_call(compiler, node)
+        return
+    if isinstance(node.value, ast.Name) and compiler.modules.get(node.value.id) == "ti84.color":
+        color.emit_call(compiler, node)
         return
     raise CompileError("unsupported library constant")
