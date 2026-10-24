@@ -13,6 +13,7 @@ from pathlib import Path
 from . import convbin, convfont, convimg
 from .cedev_config import run as cedev_config_run
 from .compiler import Compiler
+from .project_convert import run as convert_project_run
 from .errors import CompileError
 from .fasmg import ensure_ce_includes, ensure_classic_include_directory, ensure_fasmg
 from .flashapp import build_flash_app
@@ -65,6 +66,12 @@ def main() -> int:
     cedev_config_group.add_argument("--version", action="store_true", help="print toolchain version")
     cedev_config_group.add_argument("--prefix", action="store_true", help="print installation prefix")
     cedev_config_group.add_argument("--makefile", action="store_true", help="print core toolchain makefile path")
+    
+    # Project conversion command
+    from .project_convert.project_converter import add_arguments as project_converter_add_args
+    project_parser = commands.add_parser("convert-project", help="convert a CEdev or ICE project to TIpy-asm Python")
+    project_converter_add_args(project_parser)
+    
     clean_parser = commands.add_parser("clean", help="delete the project's build output folder (bindir)")
     clean_parser.add_argument("--project", type=Path, metavar="DIR",
                               help="project folder containing pyproject.toml (default: current folder)")
@@ -107,6 +114,11 @@ def main() -> int:
                     break
             if option:
                 print(cedev_config_run([option]))
+            return 0
+        if args.command == "convert-project":
+            for written in convert_project_run(args):
+                print(f"Converted: {written}")
+            print(f"\nProject converted to: {args.output or (args.project.parent / f'{args.project.name}_converted')}")
             return 0
         if args.command == "clean":
             removed = clean_project(load_project(args.project or Path.cwd()))
