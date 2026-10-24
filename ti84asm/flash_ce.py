@@ -29,6 +29,7 @@ def _p(*names, color=True):
 LIBRARY_C = {
     "ti84.graphics": {
         "begin": ("ti84py_gfx_begin", [], "v"),
+        "end": ("ti84py_gfx_end", [], "v"),
         "set_color": ("ti84py_gfx_set_color", _p("color", color=False), "i"),
         "clear": ("ti84py_gfx_clear", [], "v"),
         "fill_screen": ("ti84py_gfx_fill_screen", [_C], "v"),
@@ -115,41 +116,52 @@ RUNTIME_C = r'''/* Generated from TIpy's Python CE built-in library definitions.
 #include <ti/vars.h>
 #include <ti/screen.h>
 #include <ti/getcsc.h>
+#include <ti/getkey.h>
+#include <ti/ui.h>
 
 #ifndef TI84PY_VRAM_ADDR
 #define TI84PY_VRAM_ADDR 0xD40000
 #endif
 static volatile uint16_t * const ti84py_vram = (volatile uint16_t*)TI84PY_VRAM_ADDR;
-#if TI84PY_GRAPH_ENABLED
-static uint8_t ti84py_buffer[320u * 240u];
-#endif
-static uint8_t ti84py_draw_buffer = 0;
+/* Python integer operators wrap at 32 bits; keep C signed overflow defined. */
+static int32_t ti84py_from_u32(uint32_t value)
+{
+    return value <= INT32_MAX ? (int32_t)value : -1 - (int32_t)(UINT32_MAX - value);
+}
+static int32_t ti84py_wrap_add(int32_t a, int32_t b)
+{ return ti84py_from_u32((uint32_t)a + (uint32_t)b); }
+static int32_t ti84py_wrap_sub(int32_t a, int32_t b)
+{ return ti84py_from_u32((uint32_t)a - (uint32_t)b); }
+static int32_t ti84py_wrap_mul(int32_t a, int32_t b)
+{ return ti84py_from_u32((uint32_t)a * (uint32_t)b); }
+static int32_t ti84py_wrap_neg(int32_t value)
+{ return ti84py_from_u32(0u - (uint32_t)value); }
 static int32_t ti84py_text_row = 0;
 static int32_t ti84py_color = 0;
+static uint8_t ti84py_screen_active = 0;
+static int32_t ti84py_clip_x(int32_t x) { return x < 0 ? 0 : (x > 319 ? 319 : x); }
+static int32_t ti84py_clip_y(int32_t y) { return y < 0 ? 0 : (y > 239 ? 239 : y); }
 static uint16_t ti84py_cursor_underlay[12u * 16u];
 static int32_t ti84py_cursor_x, ti84py_cursor_y, ti84py_cursor_w, ti84py_cursor_h;
 static uint8_t ti84py_cursor_saved = 0;
+static void ti84py_lcd_16bpp(void)
+{
+    /* Match the CE OS lcdBpp16 value used by the assembly backend. */
+    *(volatile uint8_t*)0xE30018 = 0xC1;
+}
 static void ti84py_gfx_begin(void)
 {
-    volatile uint8_t *lcd_ctrl = (volatile uint8_t*)0xF60018;
-    *lcd_ctrl = (uint8_t)((*lcd_ctrl & 0x0F) | 0xC0);
-    ((void (*)(void))0x021E1C)();
+    if (ti84py_screen_active) return;
+    /* The OS owns the homescreen's native 16bpp mode; leave LCD control alone. */
     os_SetDrawFGColor(0);
-    ti84py_draw_buffer = 0;
+    ti84py_screen_active = 1;
 }
-#if TI84PY_GRAPH_ENABLED
-static uint8_t ti84py_rgb565_index(uint16_t color)
+static void ti84py_gfx_end(void)
 {
-    uint8_t r = (uint8_t)((color >> 13) & 7u);
-    uint8_t g = (uint8_t)((color >> 8) & 7u);
-    uint8_t b = (uint8_t)((color >> 3) & 3u);
-    return (uint8_t)((r << 5) | (g << 2) | b);
+    if (!ti84py_screen_active) return;
+    os_DrawStatusBar();
+    ti84py_screen_active = 0;
 }
-static uint16_t ti84py_index_rgb565(uint8_t index)
-{
-    return ti84py_rgb565_palette[index];
-}
-#endif
 static int32_t ti84py_gfx_set_color(int32_t color)
 {
     int32_t old = ti84py_color;
@@ -159,41 +171,26 @@ static int32_t ti84py_gfx_set_color(int32_t color)
 static void ti84py_gfx_pixel(int32_t x, int32_t y, int32_t color)
 {
     uint32_t offset;
+    ti84py_gfx_begin();
     if ((uint32_t)x >= 320u || (uint32_t)y >= 240u) return;
     offset = (uint32_t)y * 320u + (uint32_t)x;
     if (color < 0) color = ti84py_color;
-#if TI84PY_GRAPH_ENABLED
-    if (ti84py_draw_buffer) { ti84py_buffer[offset] = ti84py_rgb565_index((uint16_t)color); return; }
-#endif
     ti84py_vram[offset] = (uint16_t)color;
 }
 static void ti84py_gfx_fill_rect(int32_t x, int32_t y, int32_t w, int32_t h, int32_t color)
 {
-    int32_t x0 = x < 0 ? 0 : x, y0 = y < 0 ? 0 : y;
-    int32_t x1 = x + w, y1 = y + h, row;
+    int32_t x0, y0, x1, y1, row;
     volatile uint16_t *row_ptr;
+    ti84py_gfx_begin();
+    if (w <= 0 || h <= 0 || x >= 320 || y >= 240) return;
+    if (x < 0) { if (x <= -w) return; w += x; x = 0; }
+    if (y < 0) { if (y <= -h) return; h += y; y = 0; }
+    x0 = x; y0 = y;
+    if (w > 320 - x0) w = 320 - x0;
+    if (h > 240 - y0) h = 240 - y0;
+    if (w <= 0 || h <= 0) return;
+    x1 = x0 + w; y1 = y0 + h;
     if (color < 0) color = ti84py_color;
-    if (x1 > 320) x1 = 320;
-    if (y1 > 240) y1 = 240;
-    if (w <= 0 || h <= 0 || x0 >= x1 || y0 >= y1) return;
-#if TI84PY_GRAPH_ENABLED
-    if (ti84py_draw_buffer) {
-        uint8_t value = ti84py_rgb565_index((uint16_t)color);
-        uint8_t *buffer_row = ti84py_buffer + (uint32_t)y0 * 320u + (uint32_t)x0;
-        for (row = y0; row < y1; ++row) {
-            uint8_t *pixel = buffer_row;
-            uint8_t *end = pixel + (x1 - x0);
-            while (pixel + 4 <= end) {
-                pixel[0] = value; pixel[1] = value;
-                pixel[2] = value; pixel[3] = value;
-                pixel += 4;
-            }
-            while (pixel < end) *pixel++ = value;
-            buffer_row += 320;
-        }
-        return;
-    }
-#endif
     row_ptr = ti84py_vram + (uint32_t)y0 * 320u + (uint32_t)x0;
     for (row = y0; row < y1; ++row) {
         volatile uint16_t *pixel = row_ptr;
@@ -210,6 +207,9 @@ static void ti84py_gfx_fill_rect(int32_t x, int32_t y, int32_t w, int32_t h, int
 }
 static void ti84py_gfx_line(int32_t x0, int32_t y0, int32_t x1, int32_t y1, int32_t color)
 {
+    /* Keep the raster loop bounded even if Python variables exceed screen coordinates. */
+    x0 = ti84py_clip_x(x0); x1 = ti84py_clip_x(x1);
+    y0 = ti84py_clip_y(y0); y1 = ti84py_clip_y(y1);
     int32_t dx = x1 >= x0 ? x1 - x0 : x0 - x1;
     int32_t sx = x0 < x1 ? 1 : -1;
     int32_t dy0 = y1 >= y0 ? y1 - y0 : y0 - y1;
@@ -225,10 +225,14 @@ static void ti84py_gfx_line(int32_t x0, int32_t y0, int32_t x1, int32_t y1, int3
 }
 static void ti84py_gfx_rect(int32_t x, int32_t y, int32_t w, int32_t h, int32_t color)
 {
-    ti84py_gfx_line(x, y, x + w, y, color);
-    ti84py_gfx_line(x + w, y, x + w, y + h, color);
-    ti84py_gfx_line(x + w, y + h, x, y + h, color);
-    ti84py_gfx_line(x, y + h, x, y, color);
+    int32_t x2, y2;
+    if (w < 0 || h < 0) return;
+    x2 = x > 2147483647 - w ? 2147483647 : x + w;
+    y2 = y > 2147483647 - h ? 2147483647 : y + h;
+    ti84py_gfx_line(x, y, x2, y, color);
+    ti84py_gfx_line(x2, y, x2, y2, color);
+    ti84py_gfx_line(x2, y2, x, y2, color);
+    ti84py_gfx_line(x, y2, x, y, color);
 }
 static int32_t ti84py_edge_x(int32_t ax, int32_t ay, int32_t bx, int32_t by, int32_t y)
 {
@@ -237,6 +241,8 @@ static int32_t ti84py_edge_x(int32_t ax, int32_t ay, int32_t bx, int32_t by, int
 static void ti84py_gfx_triangle(int32_t x0, int32_t y0, int32_t x1, int32_t y1,
                                 int32_t x2, int32_t y2, int32_t color)
 {
+    x0 = ti84py_clip_x(x0); x1 = ti84py_clip_x(x1); x2 = ti84py_clip_x(x2);
+    y0 = ti84py_clip_y(y0); y1 = ti84py_clip_y(y1); y2 = ti84py_clip_y(y2);
     int32_t y, miny = y0 < y1 ? (y0 < y2 ? y0 : y2) : (y1 < y2 ? y1 : y2);
     int32_t maxy = y0 > y1 ? (y0 > y2 ? y0 : y2) : (y1 > y2 ? y1 : y2);
     if (miny < 0) miny = 0;
@@ -257,6 +263,9 @@ static void ti84py_gfx_triangle(int32_t x0, int32_t y0, int32_t x1, int32_t y1,
 }
 static void ti84py_gfx_circle(int32_t cx, int32_t cy, int32_t radius, int32_t color)
 {
+    if (radius < 0) return;
+    if (radius > 320) radius = 320;
+    cx = ti84py_clip_x(cx); cy = ti84py_clip_y(cy);
     int32_t x = radius, y = 0, err = 1 - radius;
     while (x >= y) {
         ti84py_gfx_pixel(cx+x,cy+y,color); ti84py_gfx_pixel(cx+y,cy+x,color);
@@ -270,8 +279,11 @@ static void ti84py_gfx_circle(int32_t cx, int32_t cy, int32_t radius, int32_t co
 }
 static void ti84py_gfx_fill_circle(int32_t cx, int32_t cy, int32_t radius, int32_t color)
 {
-    int32_t x = radius, y = 0, err = 1 - radius;
+    int32_t x, y = 0, err;
     if (radius < 0) return;
+    if (radius > 320) radius = 320;
+    x = radius; err = 1 - radius;
+    cx = ti84py_clip_x(cx); cy = ti84py_clip_y(cy);
     while (x >= y) {
         ti84py_gfx_fill_rect(cx - x, cy + y, 2 * x + 1, 1, color);
         ti84py_gfx_fill_rect(cx - x, cy - y, 2 * x + 1, 1, color);
@@ -284,11 +296,20 @@ static void ti84py_gfx_fill_circle(int32_t cx, int32_t cy, int32_t radius, int32
 }
 static void ti84py_gfx_clear(void)
 {
-    ti84py_gfx_fill_rect(0, 0, 320, 240, 0xFFFF);
+    /* The OS clear routine owns the LCD state and avoids raw full-frame writes. */
+    ti84py_gfx_begin();
+    os_ClrLCDFull();
     ti84py_text_row = 0;
 }
 static void ti84py_gfx_fill_screen(int32_t color)
 {
+    /* White is the calculator's native homescreen clear color. */
+    if ((uint16_t)color == 0xFFFFu) {
+        ti84py_gfx_begin();
+        os_ClrLCDFull();
+        ti84py_text_row = 0;
+        return;
+    }
     ti84py_gfx_fill_rect(0, 0, 320, 240, color);
 }
 static void ti84py_gfx_save_cursor(int32_t x, int32_t y)
@@ -319,47 +340,23 @@ static void ti84py_gfx_restore_cursor(void)
     }
     ti84py_cursor_saved = 0;
 }
-#if TI84PY_GRAPH_ENABLED
-static void ti84py_graph_set_draw_buffer(void)
-{
-    ti84py_draw_buffer = 1;
-}
-static void ti84py_graph_set_draw_screen(void)
-{
-    ti84py_draw_buffer = 0;
-}
-static void ti84py_graph_blit_buffer(void)
-{
-    uint32_t i;
-    for (i = 0; i < 320u * 240u; ++i) ti84py_vram[i] = ti84py_index_rgb565(ti84py_buffer[i]);
-}
-static void ti84py_graph_blit_screen(void)
-{
-    uint32_t i;
-    for (i = 0; i < 320u * 240u; ++i) ti84py_buffer[i] = ti84py_rgb565_index(ti84py_vram[i]);
-}
-static void ti84py_graph_swap_draw(void)
-{
-    ti84py_graph_blit_buffer();
-}
-static void ti84py_graph_begin(void)
-{
-    ti84py_gfx_begin();
-}
-static void ti84py_graph_end(void)
-{
-    ti84py_draw_buffer = 0;
-    ((void (*)(void))0x021E1C)();
-}
-#endif
+static void ti84py_graph_set_draw_buffer(void) { }
+static void ti84py_graph_set_draw_screen(void) { }
+static void ti84py_graph_blit_buffer(void) { }
+static void ti84py_graph_blit_screen(void) { }
+static void ti84py_graph_swap_draw(void) { }
+static void ti84py_graph_begin(void) { ti84py_gfx_begin(); }
+static void ti84py_graph_end(void) { ti84py_gfx_end(); }
 static void ti84py_gfx_text(const char *s, int32_t x, int32_t y)
 {
+    ti84py_gfx_begin();
     if (x >= 0 && y >= 0 && x < 320 && y < 240)
         (void)os_FontDrawText(s, (uint16_t)(x / 6), (uint8_t)(y / 8));
 }
 static int32_t ti84py_read_key(void)
 {
-    int32_t key;
+    int key;
+    /* Ignore the key used to launch the app, then wait for a fresh key. */
     do { key = os_GetCSC(); } while (key != 0);
     do { key = os_GetCSC(); } while (key == 0);
     return key;
@@ -420,7 +417,7 @@ static void ti84py_storage_write_byte(const char *name, int32_t offset, int32_t 
     if (!var || archived || offset < 0 || (uint32_t)offset >= var->size || value < 0 || value > 255) return;
     var->data[offset] = (uint8_t)value;
 }
-static int32_t ti84py_math_abs(int32_t value) { return value < 0 ? -value : value; }
+static int32_t ti84py_math_abs(int32_t value) { return value < 0 ? ti84py_wrap_neg(value) : value; }
 static int32_t ti84py_math_min(int32_t a, int32_t b) { return a < b ? a : b; }
 static int32_t ti84py_math_max(int32_t a, int32_t b) { return a > b ? a : b; }
 static int32_t ti84py_math_clamp(int32_t value, int32_t low, int32_t high)
@@ -490,7 +487,7 @@ static int32_t ti84py_list_contains(ti84py_list l, int32_t value)
 static int32_t ti84py_list_sum(ti84py_list l)
 {
     int32_t i, total = 0;
-    for (i = 0; i < l.len; ++i) total += l.data[i];
+    for (i = 0; i < l.len; ++i) total = ti84py_wrap_add(total, l.data[i]);
     return total;
 }
 static int32_t ti84py_list_min(ti84py_list l)
@@ -533,21 +530,23 @@ static int32_t ti84py_floordiv(int32_t a, int32_t b)
 {
     int32_t q;
     if (b == 0) return 0;
+    if (a == INT32_MIN && b == -1) return INT32_MIN;
     q = a / b;
-    if ((a % b) != 0 && ((a < 0) != (b < 0))) --q;
+    if ((a % b) != 0 && ((a < 0) != (b < 0))) q = ti84py_wrap_sub(q, 1);
     return q;
 }
 static int32_t ti84py_mod(int32_t a, int32_t b)
 {
     int32_t r;
     if (b == 0) return 0;
+    if (a == INT32_MIN && b == -1) return 0;
     r = a % b;
-    if (r != 0 && ((r < 0) != (b < 0))) r += b;
+    if (r != 0 && ((r < 0) != (b < 0))) r = ti84py_wrap_add(r, b);
     return r;
 }
 static int32_t ti84py_shl(int32_t a, int32_t b)
 {
-    return (b < 0 || b >= 32) ? 0 : (int32_t)((uint32_t)a << b);
+    return (b < 0 || b >= 32) ? 0 : ti84py_from_u32((uint32_t)a << b);
 }
 static int32_t ti84py_shr(int32_t a, int32_t b)
 {
@@ -560,8 +559,8 @@ static int32_t ti84py_pow(int32_t base, int32_t exponent)
     int32_t result = 1;
     if (exponent < 0) return 0;
     while (exponent) {
-        if (exponent & 1) result *= base;
-        base *= base;
+        if (exponent & 1) result = ti84py_wrap_mul(result, base);
+        base = ti84py_wrap_mul(base, base);
         exponent >>= 1;
     }
     return result;
@@ -578,7 +577,11 @@ static int32_t ti84py_math_sin(int32_t deg)
     v = ti84py_sin_q[deg];
     return negative ? -v : v;
 }
-static int32_t ti84py_math_cos(int32_t deg) { return ti84py_math_sin(deg + 90); }
+static int32_t ti84py_math_cos(int32_t deg)
+{
+    deg %= 360;
+    return ti84py_math_sin(deg + 90);
+}
 static int32_t ti84py_random_between(int32_t low, int32_t high)
 {
     if (high < low) return low;
@@ -587,11 +590,9 @@ static int32_t ti84py_random_between(int32_t low, int32_t high)
 static int32_t ti84py_gfx_get_pixel(int32_t x, int32_t y)
 {
     uint32_t offset;
+    ti84py_gfx_begin();
     if ((uint32_t)x >= 320u || (uint32_t)y >= 240u) return 0;
     offset = (uint32_t)y * 320u + (uint32_t)x;
-#if TI84PY_GRAPH_ENABLED
-    if (ti84py_draw_buffer) return ti84py_index_rgb565(ti84py_buffer[offset]);
-#endif
     return ti84py_vram[offset];
 }
 static int32_t ti84py_kb_is_down(int32_t code)
@@ -625,12 +626,17 @@ static void ti84py_gfx_text_int(int32_t value, int32_t x, int32_t y)
 static char ti84py_line[64];
 static int32_t ti84py_line_len = 0;
 static uint8_t ti84py_printed = 0;
+static uint8_t ti84py_print_started = 0;
 static void ti84py_print_flush(void)
 {
     ti84py_line[ti84py_line_len] = 0;
-    if (ti84py_text_row > 232) ti84py_gfx_clear();
-    ti84py_gfx_text(ti84py_line, 0, ti84py_text_row);
-    ti84py_text_row += 8;
+    if (!ti84py_print_started) {
+        /* Let the OS clear and position the homescreen below its status bar. */
+        os_ClrHome();
+        ti84py_print_started = 1;
+    }
+    (void)os_PutStrFull(ti84py_line);
+    os_NewLine();
     ti84py_line_len = 0;
     ti84py_printed = 1;
 }
@@ -665,20 +671,11 @@ static void ti84py_finish(void)
 }
 '''
 
-MAIN_OPEN = "int main(void)\n{\n    ti84py_gfx_begin();"
+MAIN_OPEN = "int main(void)\n{"
 
 
 def runtime_header(include_graph: bool = False) -> list[str]:
     """Return compiler-owned CE routines (everything before main) as C lines."""
-    text = "#define TI84PY_GRAPH_ENABLED " + ("1" if include_graph else "0") + "\n#include <stdint.h>\n"
-    if include_graph:
-        colors = []
-        for index in range(256):
-            r, g, b = (index >> 5) & 7, (index >> 2) & 7, index & 3
-            color = ((r * 31 // 7) << 11) | ((g * 63 // 7) << 5) | (b * 31 // 3)
-            colors.append(f"0x{color:04X}")
-        rows = [", ".join(colors[i:i + 8]) for i in range(0, 256, 8)]
-        text += "#if TI84PY_GRAPH_ENABLED\nstatic const uint16_t ti84py_rgb565_palette[256] = {\n"
-        text += ",\n".join(rows) + "\n};\n#endif\n"
+    text = "#include <stdint.h>\n"
     text += RUNTIME_C + RUNTIME_EXTRA_C
     return text.splitlines()

@@ -34,7 +34,8 @@ def _emit_find_appvar(compiler, name: str) -> tuple[str, str]:
     return error, done
 
 
-def _emit_byte_address(compiler, name: str, offset: int, value: int | None = None) -> None:
+def _emit_byte_address(compiler, name: str, offset: int, value: int | None = None,
+                      value_label: str | None = None) -> None:
     error, done = _emit_find_appvar(compiler, name)
     compiler.emit("    ex de,hl ; HL points to AppVar length")
     compiler.emit("    ld e,(hl)")
@@ -52,6 +53,9 @@ def _emit_byte_address(compiler, name: str, offset: int, value: int | None = Non
     compiler.emit("    add hl,de")
     if value is not None:
         compiler.emit(f"    ld a,{compiler.byte_literal(value)}")
+        compiler.emit("    ld (hl),a")
+    elif value_label is not None:
+        compiler.emit(f"    ld a,({value_label})")
         compiler.emit("    ld (hl),a")
     compiler.emit(f"    jp {done}")
     compiler.emit(error + ":")
@@ -92,10 +96,25 @@ def emit_call(compiler, node: ast.Call) -> None:
     elif node.func.attr == "write_byte" and len(node.args) == 3:
         name = appvar_arg()
         offset = literal_integer(node.args[1], "AppVar offset")
-        value = literal_integer(node.args[2], "byte value", allow_unsigned=True)
-        if value > 255:
-            raise CompileError("byte value must be in the range 0..255")
-        _emit_byte_address(compiler, name, offset, value)
+        if isinstance(node.args[2], ast.Constant) and isinstance(node.args[2].value, int) \
+                and not isinstance(node.args[2].value, bool):
+            value = literal_integer(node.args[2], "byte value", allow_unsigned=True)
+        else:
+            # Runtime values are kept in a scratch word while the OS locates
+            # the AppVar, then their low byte is written to the requested slot.
+            value = None
+        if value is not None:
+            if value > 255:
+                raise CompileError("byte value must be in the range 0..255")
+            _emit_byte_address(compiler, name, offset, value)
+        else:
+            compiler.expression(node.args[2])
+            scratch = compiler.label("storage_value")
+            compiler.emit(f"    ld ({scratch}),hl")
+            compiler.data.append(
+                f"{scratch}: " + ("db 0,0,0" if compiler.target == "ce" else ".dw 0")
+            )
+            _emit_byte_address(compiler, name, offset, value_label=scratch)
     elif node.func.attr == "read_byte" and len(node.args) == 2:
         raise CompileError("storage.read_byte() must be assigned to a variable")
     else:

@@ -129,6 +129,7 @@ class FlashAppCompiler:
         except SyntaxError as exc:
             raise CompileError(f"line {exc.lineno}: {exc.msg}") from exc
         self._collect(tree)
+        self._validate_definite_assignment()
         for _ in range(3):          # learn variable/return types; errors are not final yet
             self.final = False
             self._generate()
@@ -161,6 +162,83 @@ class FlashAppCompiler:
                 self.global_names.update(_assigned_names(sub))
         for fn in self.funcs.values():
             self.global_names.update(fn.globals)
+
+    def _validate_definite_assignment(self) -> None:
+        """Reject reads that would silently consume C zero-init values."""
+        main_names = {
+            name for stmt in self.main_body for sub in ast.walk(stmt)
+            for name in _assigned_names(sub)
+        }
+        self._check_block(self.main_body, set(), main_names, "module")
+        for fn in self.funcs.values():
+            locals_ = fn.locals - set(fn.params)
+            self._check_block(fn.node.body, set(fn.params), locals_, f"function {fn.name}")
+
+    def _check_reads(self, node: ast.AST, assigned: set[str], names: set[str], scope: str) -> None:
+        for sub in ast.walk(node):
+            if (isinstance(sub, ast.Name) and isinstance(sub.ctx, ast.Load)
+                    and sub.id in names and sub.id not in assigned):
+                line = getattr(sub, "lineno", getattr(node, "lineno", "?"))
+                raise CompileError(f"line {line}: {scope} variable {sub.id!r} may be read before assignment")
+
+    def _check_block(self, body: list[ast.stmt], assigned: set[str],
+                     names: set[str], scope: str) -> set[str] | None:
+        """Flow-sensitive check; None means control cannot fall through."""
+        state: set[str] | None = set(assigned)
+        for node in body:
+            if state is None:
+                break
+            if isinstance(node, ast.Assign):
+                self._check_reads(node.value, state, names, scope)
+                for target in node.targets:
+                    self._check_reads(target, state, names, scope)
+                state.update(_assigned_names(node))
+            elif isinstance(node, ast.AnnAssign):
+                if node.value is not None:
+                    self._check_reads(node.value, state, names, scope)
+                    state.update(_assigned_names(node))
+            elif isinstance(node, ast.AugAssign):
+                if isinstance(node.target, ast.Name):
+                    loaded = ast.copy_location(ast.Name(id=node.target.id, ctx=ast.Load()), node.target)
+                    self._check_reads(loaded, state, names, scope)
+                else:
+                    self._check_reads(node.target, state, names, scope)
+                self._check_reads(node.value, state, names, scope)
+                state.update(_assigned_names(node))
+            elif isinstance(node, ast.If):
+                self._check_reads(node.test, state, names, scope)
+                if (isinstance(node.test, ast.Compare) and isinstance(node.test.left, ast.Name)
+                        and node.test.left.id == "__name__" and node.test.comparators
+                        and isinstance(node.test.comparators[0], ast.Constant)
+                        and node.test.comparators[0].value == "__main__"):
+                    state = self._check_block(node.body, state, names, scope)
+                    continue
+                then_state = self._check_block(node.body, state, names, scope)
+                else_state = self._check_block(node.orelse, state, names, scope)
+                if isinstance(node.test, ast.Constant) and isinstance(node.test.value, bool):
+                    state = then_state if node.test.value else else_state
+                elif then_state is None:
+                    state = else_state
+                elif else_state is None:
+                    state = then_state
+                else:
+                    state = then_state & else_state
+            elif isinstance(node, ast.While):
+                self._check_reads(node.test, state, names, scope)
+                self._check_block(node.body, state, names, scope)
+            elif isinstance(node, ast.For):
+                self._check_reads(node.iter, state, names, scope)
+                loop_state = state | set(_assigned_names(node))
+                self._check_block(node.body, loop_state, names, scope)
+            elif isinstance(node, (ast.Return, ast.Raise)):
+                if node.value is not None:
+                    self._check_reads(node.value, state, names, scope)
+                state = None
+            elif isinstance(node, (ast.Break, ast.Continue)):
+                state = None
+            else:
+                self._check_reads(node, state, names, scope)
+        return state
 
     def _register(self, alias: str, short: str) -> None:
         self.modules[alias] = f"ti84.{short}"
@@ -373,7 +451,7 @@ class FlashAppCompiler:
                 cond = f"({n}s > 0 ? {n}i < {n}e : {n}i > {n}e)"
             else:
                 cond = f"{n}i < {n}e" if step_const > 0 else f"{n}i > {n}e"
-            self.line(f"for (; {cond}; {n}i += {n}s) {{")
+            self.line(f"for (; {cond}; {n}i = ti84py_wrap_add({n}i, {n}s)) {{")
             self.ind += 1
             self.line(f"{var} = {n}i;")
         else:
@@ -479,6 +557,26 @@ class FlashAppCompiler:
             self.fail(f"expected an integer but found {ty}")
         return code
 
+    def ordered_values(self, values: list[tuple[str, str]], operation: str) -> str:
+        """Sequence expression evaluation left-to-right before a C operation."""
+        declarations, temps = [], []
+        for code, ty in values:
+            temp = self.new_tmp()
+            declarations.append(f"{CTYPES[ty]} {temp} = {code};")
+            temps.append(temp)
+        prefix = " ".join(declarations)
+        named = {"left": temps[0], "right": temps[1]} if len(temps) >= 2 else {}
+        return f"({{ {prefix} {operation.format(*temps, **named)}; }})"
+
+    @staticmethod
+    def sequence_expression(declarations: list[str], expression: str) -> str:
+        if not declarations:
+            return expression
+        return f"({{ {' '.join(declarations)} {expression}; }})"
+
+    def ordered_int_binary(self, left: str, right: str, operation: str) -> str:
+        return self.ordered_values([(left, INT), (right, INT)], operation)
+
     def const_value(self, node: ast.expr) -> int | None:
         if isinstance(node, ast.Constant) and isinstance(node.value, int) and not isinstance(node.value, bool):
             return node.value
@@ -543,7 +641,7 @@ class FlashAppCompiler:
         if isinstance(node.op, ast.Not):
             return f"(!{self.cond(node.operand)})", BOOL
         code = self.int_expr(node.operand)
-        if isinstance(node.op, ast.USub): return f"(-{code})", INT
+        if isinstance(node.op, ast.USub): return f"ti84py_wrap_neg({code})", INT
         if isinstance(node.op, ast.UAdd): return code, INT
         if isinstance(node.op, ast.Invert): return f"(~{code})", INT
         self.fail("unsupported unary operator")
@@ -553,6 +651,9 @@ class FlashAppCompiler:
             return self.list_fill(node.left, node.right)
         if isinstance(node.op, ast.Mult) and isinstance(node.right, ast.List):
             return self.list_fill(node.right, node.left)
+        if (isinstance(node.op, (ast.FloorDiv, ast.Mod))
+                and self.const_value(node.right) == 0):
+            self.fail("division or modulo by zero")
         a, ta = self.expr(node.left)
         b, tb = self.expr(node.right)
         if isinstance(node.op, ast.Add) and ta == STR and tb == STR:
@@ -560,15 +661,21 @@ class FlashAppCompiler:
         if not (_numeric(ta) and _numeric(tb)):
             self.fail(f"operator needs integers, found {ta} and {tb}")
         op = node.op
-        simple = {ast.Add: "+", ast.Sub: "-", ast.Mult: "*", ast.BitAnd: "&", ast.BitOr: "|", ast.BitXor: "^"}
+        wrapping = {
+            ast.Add: "ti84py_wrap_add", ast.Sub: "ti84py_wrap_sub", ast.Mult: "ti84py_wrap_mul",
+        }
+        for kind, name in wrapping.items():
+            if isinstance(op, kind):
+                return self.ordered_int_binary(a, b, f"{name}({{left}}, {{right}})"), INT
+        simple = {ast.BitAnd: "&", ast.BitOr: "|", ast.BitXor: "^"}
         for kind, text in simple.items():
             if isinstance(op, kind):
-                return f"({a} {text} {b})", INT
+                return self.ordered_int_binary(a, b, f"({{left}} {text} {{right}})"), INT
         helpers = {ast.FloorDiv: "ti84py_floordiv", ast.Mod: "ti84py_mod", ast.LShift: "ti84py_shl",
                    ast.RShift: "ti84py_shr", ast.Pow: "ti84py_pow"}
         for kind, name in helpers.items():
             if isinstance(op, kind):
-                return f"{name}({a}, {b})", INT
+                return self.ordered_int_binary(a, b, f"{name}({{left}}, {{right}})"), INT
         if isinstance(op, ast.Div):
             self.fail("true division '/' is not supported (no floats); use '//'")
         self.fail("unsupported binary operator")
@@ -653,41 +760,54 @@ class FlashAppCompiler:
         operands = [node.left] + list(node.comparators)
         if len(node.ops) == 1:
             return self.compare_one(node.ops[0], operands[0], operands[1])
-        # chained comparison: evaluate each middle operand once
-        temps, pre = [], []
-        for operand in operands:
-            code, ty = self.expr(operand)
-            t = self.new_tmp()
-            pre.append(f"{CTYPES[ty]} {t} = {code};")
-            temps.append(_Raw(t, ty))
-        parts = [self.compare_one(op, temps[i], temps[i + 1]) for i, op in enumerate(node.ops)]
-        return "({ " + " ".join(pre) + " " + " && ".join(parts) + "; })"
+        # Evaluate chained operands once and only evaluate the next operand if
+        # the preceding comparison succeeded, as Python specifies.
+        code, ty = self.expr(operands[0])
+        previous = self.new_tmp()
+        body = [f"{CTYPES[ty]} {previous} = {code};", "int32_t result = 1;"]
+        nested = ""
+        for index, (op, operand) in enumerate(zip(node.ops, operands[1:])):
+            code, operand_type = self.expr(operand)
+            current = self.new_tmp()
+            left = _Raw(previous, ty)
+            right = _Raw(current, operand_type)
+            comparison = self.compare_one(op, left, right)
+            nested += f" {CTYPES[operand_type]} {current} = {code};"
+            if index < len(node.ops) - 1:
+                nested += f" if (!({comparison})) result = 0; else {{"
+            else:
+                nested += f" if (!({comparison})) result = 0;"
+            previous, ty = current, operand_type
+        nested += " }" * (len(node.ops) - 1)
+        return "({ " + " ".join(body) + nested + " result; })"
 
     def compare_one(self, op: ast.cmpop, left: ast.expr, right: ast.expr) -> str:
         if isinstance(op, (ast.In, ast.NotIn)):
             a = self.int_expr(left)
             if isinstance(right, (ast.Tuple, ast.List, ast.Set)):
-                t = self.new_tmp()
-                tests = " || ".join(f"{t} == {self.int_expr(e)}" for e in right.elts) or "0"
-                code = f"({{ int32_t {t} = {a}; {tests}; }})"
+                values = [(a, INT)] + [(self.int_expr(e), INT) for e in right.elts]
+                tests = " || ".join(f"{{0}} == {{{i}}}" for i in range(1, len(values))) or "0"
+                code = self.ordered_values(values, tests)
             else:
                 b, bt = self.expr(right)
                 if bt != LIST:
                     self.fail("'in' needs a list or a literal tuple on the right")
-                code = f"ti84py_list_contains({b}, {a})"
+                code = self.ordered_values([(a, INT), (b, bt)], "ti84py_list_contains({1}, {0})")
             return f"(!{code})" if isinstance(op, ast.NotIn) else code
         a, ta = self.expr(left)
         b, tb = self.expr(right)
         if ta == STR and tb == STR:
-            if isinstance(op, ast.Eq): return f"ti84py_streq({a}, {b})"
-            if isinstance(op, ast.NotEq): return f"(!ti84py_streq({a}, {b}))"
+            if isinstance(op, ast.Eq):
+                return self.ordered_values([(a, ta), (b, tb)], "ti84py_streq({0}, {1})")
+            if isinstance(op, ast.NotEq):
+                return self.ordered_values([(a, ta), (b, tb)], "(!ti84py_streq({0}, {1}))")
             self.fail("strings only support == and !=")
         if not (_numeric(ta) and _numeric(tb)):
             self.fail(f"cannot compare {ta} with {tb}")
         for kind, text in ((ast.Eq, "=="), (ast.NotEq, "!="), (ast.Lt, "<"), (ast.LtE, "<="),
                            (ast.Gt, ">"), (ast.GtE, ">=")):
             if isinstance(op, kind):
-                return f"({a} {text} {b})"
+                return self.ordered_values([(a, ta), (b, tb)], f"({{0}} {text} {{1}})")
         self.fail("unsupported comparison operator")
 
     # ------------------------------------------------------------------ calls
@@ -737,9 +857,12 @@ class FlashAppCompiler:
 
     def user_call(self, fn: _Func, node: ast.Call, statement: bool) -> tuple[str, str]:
         bound = self.bind(node, fn.params, fn.defaults, f"{fn.name}()")
-        args = []
-        for p in fn.params:
-            source = bound.get(p, fn.defaults.get(p))
+        source_order = fn.params[:len(node.args)] + [kw.arg for kw in node.keywords]
+        source_order.extend(p for p in fn.params if p not in bound)
+        declarations: list[str] = []
+        values: dict[str, str] = {}
+        for p in source_order:
+            source = bound[p] if p in bound else fn.defaults[p]
             code, ty = self.expr(source)
             key = (fn.name, p)
             if fn.annotations[p] is None and not self.final:
@@ -747,9 +870,13 @@ class FlashAppCompiler:
             want = self.types.get(key, INT)
             if want != ty and _join(want, ty) != want:
                 self.fail(f"{fn.name}() parameter {p} expects {want}, got {ty}")
-            args.append(code)
+            temp = self.new_tmp()
+            declarations.append(f"{CTYPES[ty]} {temp} = {code};")
+            values[p] = temp
+        args = [values[p] for p in fn.params]
         ret = self.types.get((fn.name, "<ret>"), INT)
-        return self.finish_call(f"f_{fn.name}({', '.join(args)})", ret, statement)
+        call = self.sequence_expression(declarations, f"f_{fn.name}({', '.join(args)})")
+        return self.finish_call(call, ret, statement)
 
     def library_call(self, module: str, attr: str, node: ast.Call, statement: bool) -> tuple[str, str]:
         entry = LIBRARY_C.get(module, {}).get(attr)
@@ -759,26 +886,41 @@ class FlashAppCompiler:
         names = [p[0] for p in params]
         defaults = {p[0]: p[2] for p in params}
         bound = self.bind(node, names, defaults, f"{module.removeprefix('ti84.')}.{attr}()")
-        args = []
-        for name, kind, default in params:
-            source = bound.get(name)
-            if source is None:
-                args.append(str(default))
-            elif kind == "i":
-                args.append(self.int_expr(source))
+        source_order = names[:len(node.args)] + [kw.arg for kw in node.keywords]
+        declarations: list[str] = []
+        values: dict[str, str] = {}
+        param_info = {name: (kind, default) for name, kind, default in params}
+        for name in source_order:
+            source = bound[name]
+            kind, _default = param_info[name]
+            if kind == "i":
+                code, ty = self.expr(source)
+                if not _numeric(ty):
+                    self.fail(f"{attr}() parameter {name} must be an integer")
             elif kind == "s":
                 code, ty = self.expr(source)
                 if ty != STR:
                     self.fail(f"{attr}() parameter {name} must be a string")
-                args.append(code)
             else:   # AppVar name literal
                 if not isinstance(source, ast.Constant) or not isinstance(source.value, str):
                     self.fail("AppVar name must be a string literal")
                 text = source.value.upper()
                 if not re.fullmatch(r"[A-Z][A-Z0-9]{0,7}", text):
                     self.fail("AppVar names must be 1-8 ASCII letters/digits")
-                args.append(self.c_string(text))
+                values[name] = self.c_string(text)
+                continue
+            temp = self.new_tmp()
+            declarations.append(f"{CTYPES[ty]} {temp} = {code};")
+            values[name] = temp
+
+        args = []
+        for name, kind, default in params:
+            if name in values:
+                args.append(values[name])
+            else:
+                args.append(str(default))
         code = template[1:].format(*args) if template.startswith("=") else f"{template}({', '.join(args)})"
+        code = self.sequence_expression(declarations, code)
         ty = {"v": VOID, "i": INT, "b": BOOL}[ret]
         return self.finish_call(code, ty, statement)
 
@@ -801,9 +943,10 @@ class FlashAppCompiler:
             if n == 1 and args[0][1] == LIST:
                 return self.finish_call(f"ti84py_list_{name}({args[0][0]})", INT, statement)
             if n >= 2 and all(_numeric(t) for _, t in args):
-                code = args[0][0]
-                for other, _ in args[1:]:
-                    code = f"ti84py_math_{name}({code}, {other})"
+                operation = "{0}"
+                for index in range(1, n):
+                    operation = f"ti84py_math_{name}({operation}, {{{index}}})"
+                code = self.ordered_values(args, operation)
                 return self.finish_call(code, INT, statement)
         elif name == "sum" and n == 1 and args[0][1] == LIST:
             return self.finish_call(f"ti84py_list_sum({args[0][0]})", INT, statement)

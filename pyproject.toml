@@ -3,15 +3,22 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "py2ez80"
+name = "tipy-asm"
 version = "0.1.0"
-description = "Python-based py2ez80 compiler for TI-84 Z80/eZ80 calculators"
+description = "TIpy-asm: Python compiler for TI-84 Z80/eZ80 calculators"
 readme = "README.md"
 requires-python = ">=3.10"
+dependencies = ["tomli>=2; python_version < '3.11'"]
+
+[project.optional-dependencies]
+images = ["Pillow>=10"]
 
 [project.scripts]
-py2ez80 = "ti84asm.cli:main"
+tipy-asm = "ti84asm.cli:main"
 ti84py = "ti84asm.cli:main"
 
 [tool.setuptools]
-packages = ["ti84asm", "ti84libs"]
+packages = ["ti84asm", "ti84libs", "ti84"]
+
+[tool.setuptools.package-data]
+ti84 = ["*.pyi", "py.typed"]

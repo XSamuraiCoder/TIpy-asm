@@ -14,6 +14,7 @@ from pathlib import Path
 FASMG_URL = "https://raw.githubusercontent.com/tgrysztar/fasmg/master/core/fasmg.exe"
 CE_INCLUDE_BASE_URL = "https://raw.githubusercontent.com/CE-Programming/asm-docs/master/programs/include"
 CE_INCLUDE_FILES = ("commands.alm", "ez80.alm", "ez80.inc", "ti84pceg.inc", "tiformat.inc")
+CLASSIC_INCLUDE_URL = "https://raw.githubusercontent.com/alberthdev/spasm-ng/v0.5-beta.3/inc/ti83plus.inc"
 
 
 def ensure_fasmg() -> str:
@@ -99,6 +100,69 @@ def ensure_ce_includes() -> Path:
             temp_path = Path(temp.name)
         temp_path.replace(destination)
     return parent_path
+
+
+def ensure_classic_include_directory(assembler: str | None = None) -> Path:
+    """Find or download SPASM-ng's TI-83 Plus system equates include."""
+    candidates: list[Path] = []
+    if assembler:
+        assembler_path = Path(assembler)
+        if assembler_path.is_file():
+            binary_dir = assembler_path.resolve().parent
+            candidates.extend((binary_dir, binary_dir / "inc", binary_dir / "include",
+                               binary_dir.parent / "inc", binary_dir.parent / "include"))
+    current_dir = Path.cwd()
+    candidates.extend((current_dir, current_dir / "inc", current_dir / "include"))
+    local_app_data = os.environ.get("LOCALAPPDATA")
+    if local_app_data:
+        candidates.append(Path(local_app_data) / "TIpy-asm" / "include")
+    candidates.extend((Path.home() / ".ti84py" / "include",
+                       Path(tempfile.gettempdir()) / "TIpy-asm" / "include"))
+
+    for candidate in candidates:
+        include_file = candidate / "ti83plus.inc"
+        if _valid_classic_include(include_file):
+            return candidate
+
+    cache_candidates = []
+    if local_app_data:
+        cache_candidates.append(Path(local_app_data) / "TIpy-asm" / "include")
+    cache_candidates.extend((Path.home() / ".ti84py" / "include",
+                             Path(tempfile.gettempdir()) / "TIpy-asm" / "include"))
+    cache_dir = None
+    last_error = None
+    for candidate in cache_candidates:
+        try:
+            candidate.mkdir(parents=True, exist_ok=True)
+            cache_dir = candidate
+            break
+        except OSError as exc:
+            last_error = exc
+    if cache_dir is None:
+        raise OSError(f"cannot create a classic assembler include cache: {last_error}")
+
+    request = urllib.request.Request(CLASSIC_INCLUDE_URL, headers={"User-Agent": "ti84py-asm"})
+    try:
+        with urllib.request.urlopen(request, timeout=45) as response:
+            data = response.read(512 * 1024 + 1)
+    except (urllib.error.URLError, TimeoutError) as exc:
+        raise OSError(f"could not download the SPASM-ng TI-83 Plus include: {exc}") from exc
+    if len(data) > 512 * 1024 or b"_FillRect" not in data or b"_ClearRect" not in data:
+        raise OSError("downloaded SPASM-ng TI-83 Plus include is invalid")
+    destination = cache_dir / "ti83plus.inc"
+    with tempfile.NamedTemporaryFile(dir=cache_dir, prefix="ti83plus-", suffix=".tmp", delete=False) as temp:
+        temp.write(data)
+        temp_path = Path(temp.name)
+    temp_path.replace(destination)
+    return cache_dir
+
+
+def _valid_classic_include(path: Path) -> bool:
+    try:
+        data = path.read_bytes()
+    except OSError:
+        return False
+    return len(data) <= 512 * 1024 and b"_FillRect" in data and b"_ClearRect" in data
 
 
 def _add_user_path(bin_dir: Path) -> None:
