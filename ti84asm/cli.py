@@ -10,7 +10,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-from . import convbin
+from . import convbin, convfont, convimg
 from .compiler import Compiler
 from .errors import CompileError
 from .fasmg import ensure_ce_includes, ensure_classic_include_directory, ensure_fasmg
@@ -57,6 +57,8 @@ def main() -> int:
     flash_parser.add_argument("--optimize", choices=("speed", "size"), default="speed",
                               help="favor runtime speed or smaller output (default: speed)")
     convbin.add_arguments(commands.add_parser("convbin", help="convert binary data to TI files or C/asm/ICE arrays (like CEdev's convbin)"))
+    convimg.add_arguments(commands.add_parser("convimg", help="convert an image to an AppVar or C/asm/ICE pixel data (like CEdev's convimg)"))
+    convfont.add_arguments(commands.add_parser("convfont", help="convert a TTF/OTF font (or .fnt) to an AppVar or C/asm/ICE arrays using cefont"))
     clean_parser = commands.add_parser("clean", help="delete the project's build output folder (bindir)")
     clean_parser.add_argument("--project", type=Path, metavar="DIR",
                               help="project folder containing pyproject.toml (default: current folder)")
@@ -75,6 +77,14 @@ def main() -> int:
     try:
         if args.command == "convbin":
             for written in convbin.run(args):
+                print(f"Wrote {written}")
+            return 0
+        if args.command == "convimg":
+            for written in convimg.run(args):
+                print(f"Wrote {written}")
+            return 0
+        if args.command == "convfont":
+            for written in convfont.run(args):
                 print(f"Wrote {written}")
             return 0
         if args.command == "clean":
