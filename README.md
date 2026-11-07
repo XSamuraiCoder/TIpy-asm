@@ -152,6 +152,18 @@ python -m unittest discover -s tests
 stubbed, and compares results with CPython. It is not an emulator, so test on
 CEmu or a calculator as well.
 
+## Documentation
+
+The full guide and method reference live in `docs/`. To build them:
+
+```powershell
+python -m pip install -r docs/requirements.txt
+python -m sphinx -W -b html docs docs/_build/html
+```
+
+Then open `docs/_build/html/index.html`. The method pages are generated from
+`ti84libs/api.py`, and `.readthedocs.yaml` configures Read the Docs.
+
 ## Repository layout
 
 - `ti84asm/` contains the compiler, runtime helpers, CLI, and build drivers.

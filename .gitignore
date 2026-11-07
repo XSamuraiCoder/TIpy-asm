@@ -16,6 +16,9 @@ build/
 dist/
 *.egg-info/
 
+# Built documentation
+docs/_build/
+
 # Generated calculator programs and variables
 *.8xp
 *.8xv
