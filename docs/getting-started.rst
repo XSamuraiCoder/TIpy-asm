@@ -27,7 +27,7 @@ Two targets and one converter need extra tools:
    * - The classic target
      - `SPASM-ng <https://github.com/alberthdev/spasm-ng>`_ on your ``PATH``
    * - Flash Apps
-     - `CEdev <https://github.com/CE-Programming/toolchain>`_ and an installer project
+     - `CEdev <https://github.com/CE-Programming/toolchain>`_; the installer is built for you
    * - Image assets
      - Pillow: ``python -m pip install "tipy-asm[images]"``
 

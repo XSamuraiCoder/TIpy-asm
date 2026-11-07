@@ -131,16 +131,11 @@ classic builds search your ``PATH``. Relative paths start at the project folder.
 Flash Apps
 ----------
 
-``tipy-asm flash-app`` reads these settings. ``project_dir`` must contain
-``installer/makefile``. The other settings override the installer's own values.
+``tipy-asm flash-app`` builds the app and an installer for it. Its settings live
+under ``[tool.tipy.flash]``, and :doc:`flash-apps` describes each one, along with
+installing and deleting apps.
 
 .. code-block:: toml
 
    [tool.tipy.flash]
-   project_dir = "flash"
-   optimize = "speed"
-   appvar_prefix = "PY"
-   installer_name = "INSTALL"
-   appvar_split_size = 65200
-
-``optimize`` is ``speed`` or ``size``.
+   optimize = "size"

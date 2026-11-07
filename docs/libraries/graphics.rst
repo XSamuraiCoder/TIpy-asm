@@ -43,6 +43,27 @@ becomes 0 for ``WHITE`` and 1 for anything else.
 Without a color argument, shapes and text are black. Every shape also accepts
 ``color=`` as a keyword.
 
+Text
+----
+
+:py:func:`text() <ti84.graphics.text>` takes pixel coordinates on every target,
+including Flash Apps. With ``origin="center"``, the text is centered on the screen
+using the font's real width and height, and ``x`` and ``y`` move it from the center:
+
+.. code-block:: python
+
+   from ti84 import graphics
+
+   graphics.begin()
+   graphics.clear()
+   graphics.text("Hello world!", 0, 0, origin="center")
+   graphics.wait_key()
+   graphics.end()
+
+On CE, :py:func:`clear() <ti84.graphics.clear>` clears the whole screen, status bar
+included, and :py:func:`end() <ti84.graphics.end>` brings back the home screen and
+its status bar.
+
 Screen size
 -----------
 

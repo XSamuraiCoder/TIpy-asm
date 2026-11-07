@@ -43,6 +43,8 @@ Targets
    getting-started
    language
    projects
+   assembly
+   flash-apps
    converting
 
 .. toctree::

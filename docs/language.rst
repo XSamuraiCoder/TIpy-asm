@@ -129,6 +129,12 @@ Built-in functions
 ``print``, ``exit``, ``range``, ``abs``, ``min``, and ``max`` need no import.
 ``min`` and ``max`` take two or more values.
 
+Assembly
+--------
+
+Routines written in assembly can be imported and called like functions. See
+:doc:`assembly`.
+
 Not supported
 -------------
 

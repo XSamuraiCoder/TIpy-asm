@@ -45,10 +45,10 @@ class CoverageTests(unittest.TestCase):
 class SnippetTests(unittest.TestCase):
     """Every Python example in the docs must compile, apart from names it leaves undefined."""
 
-    def compile_snippet(self, code: str) -> None:
+    def compile_snippet(self, code: str, source_dir: Path) -> None:
         for _ in range(20):
             try:
-                Compiler("T", "ce").compile(code)
+                Compiler("T", "ce", source_dir=source_dir).compile(code)
                 return
             except CompileError as exc:
                 match = re.search(r"variable '(\w+)' (?:is not defined|may be read)", str(exc))
@@ -59,6 +59,14 @@ class SnippetTests(unittest.TestCase):
         self.fail("too many undefined names")
 
     def test_python_snippets_compile(self):
+        # Assembly the docs show is written to fastmath.asm, so its Python examples import it.
+        folder = Path(tempfile.mkdtemp())
+        self.addCleanup(lambda: __import__("shutil").rmtree(folder, ignore_errors=True))
+        routines = [textwrap.dedent(block) for page in DOCS.rglob("*.rst")
+                    for block in re.findall(r"code-block:: text\n\n((?:(?:   .*)?\n)+)", page.read_text(encoding="utf-8"))
+                    if "; tipy: def" in block]
+        self.assertTrue(routines, "the assembly page should show a routine")
+        (folder / "fastmath.asm").write_text("\n".join(routines), encoding="utf-8")
         checked = 0
         for page in DOCS.rglob("*.rst"):
             if "_build" in page.parts:
@@ -68,7 +76,7 @@ class SnippetTests(unittest.TestCase):
                 with self.subTest(page=page.name, code=code):
                     # Skip a converter sample and an import of files only a real project has.
                     if "TODO(convert)" not in code and "from settings" not in code:
-                        self.compile_snippet(code)
+                        self.compile_snippet(code, folder)
                         checked += 1
         self.assertGreater(checked, 10)
 
