@@ -11,10 +11,11 @@ This is an example ICE (Interactive C for the CE) project that can be converted 
 To convert this ICE project to TIpy-asm Python:
 
 ```bash
-tipy-asm convert-project examples/ice_project_example -o ice_converted --type ice
+tipy-asm convert-project examples/ice_project_example -o ice_converted
+tipy-asm build ice_converted
 ```
 
-This will create a `ice_converted` folder with the Python version of the project.
+This will create an `ice_converted` project and build it.
 
 ## Original ICE Code
 
@@ -32,6 +33,5 @@ After conversion, the code will use the TIpy-asm Python API:
 - `graphics.begin()` and `graphics.end()`
 - `graphics.fill_screen()`
 - `graphics.text()`
-- `keyboard.read()`
-- `graphics.set_pixel()`
-- `graphics.set_color()`
+- `keyboard.get()`
+- `graphics.pixel()`, with the color from `gfx_SetColor()` kept in a variable

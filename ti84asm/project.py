@@ -8,12 +8,31 @@ Example ``[tool.tipy]`` table::
     main = "src/main.py"     # entry source file, relative to pyproject.toml
     target = "ce"            # classic, ce, or both
     bindir = "bin"           # output folder (like CEdev's BINDIR)
+    keep_asm = false         # also keep generated assembly in bindir
+
+    [tool.tipy.toolchain]    # optional paths; default is to search PATH
+    ce_assembler = "tools/fasmg.exe"
+    classic_assembler = "tools/spasm.exe"
+
+    [tool.tipy.flash]        # used by `tipy-asm flash-app`
+    project_dir = "flash"    # folder containing installer/makefile
+    optimize = "speed"       # speed or size
+    appvar_prefix = "PY"     # optional installer overrides
+    installer_name = "INSTALL"
+    appvar_split_size = 65200
+
+    [[tool.tipy.assets]]     # built into bindir on every build, when out of date
+    source = "assets/hero.png"
+    kind = "sprite"          # sprite, image, font, or binary
+    name = "HERO"            # AppVar name; default is the file's name
 """
 
 from __future__ import annotations
 
+import ast
 import re
-from dataclasses import dataclass
+import shutil
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from .errors import CompileError
@@ -24,6 +43,33 @@ except ModuleNotFoundError:            # Python 3.10: pip installs tomli for us
     import tomli as tomllib            # type: ignore[no-redef]
 
 TARGETS = ("classic", "ce", "both")
+ASSET_KINDS = ("sprite", "image", "font", "binary")
+_TABLE_KEYS = {"name", "description", "main", "target", "bindir", "keep_asm", "toolchain", "flash", "assets"}
+_TOOLCHAIN_KEYS = {"ce_assembler", "classic_assembler"}
+_FLASH_KEYS = {"project_dir", "optimize", "appvar_prefix", "installer_name", "appvar_split_size"}
+_ASSET_KEYS = {"source", "kind", "name", "size", "mode"}
+_ON_CALC_NAME = re.compile(r"[A-Za-z0-9]{1,8}")
+
+
+@dataclass(frozen=True)
+class Asset:
+    source: Path
+    kind: str
+    name: str
+    size: int | None = None       # font pixel height
+    mode: str = "rgb565"          # image pixel format
+
+    def output(self, bindir: Path) -> Path:
+        return bindir / f"{self.name}.8xv"
+
+
+@dataclass(frozen=True)
+class FlashConfig:
+    project_dir: Path | None = None
+    optimize: str = "speed"
+    appvar_prefix: str | None = None
+    installer_name: str | None = None
+    appvar_split_size: int | None = None
 
 
 @dataclass(frozen=True)
@@ -34,14 +80,74 @@ class ProjectConfig:
     main: Path
     target: str
     bindir: Path
+    keep_asm: bool = False
+    ce_assembler: str | None = None
+    classic_assembler: str | None = None
+    flash: FlashConfig = field(default_factory=FlashConfig)
+    assets: tuple[Asset, ...] = ()
 
 
 def find_project_file(start: Path) -> Path:
-    """Return the pyproject.toml in ``start`` (a directory) or ``start`` itself (a file)."""
-    path = start / "pyproject.toml" if start.is_dir() else start
-    if not path.is_file():
-        raise CompileError(f"no pyproject.toml found in {start}; pass a source file or run from a project folder")
-    return path
+    """Find pyproject.toml in ``start`` or, for a folder, its nearest parent with [tool.tipy]."""
+    if start.is_file():
+        return start
+    start = start.resolve()
+    direct = start / "pyproject.toml"
+    if not start.exists():
+        raise CompileError(f"folder not found: {start}")
+    for folder in (start, *start.parents):
+        candidate = folder / "pyproject.toml"
+        if candidate.is_file() and _declares_tipy(candidate):
+            return candidate
+    if direct.is_file():
+        return direct       # load_project reports the missing section
+    raise CompileError(f"no TIpy project found in {start} or its parent folders; "
+                       "pass a source file, or create a project with: tipy-asm new NAME")
+
+
+def _declares_tipy(path: Path) -> bool:
+    try:
+        return "tipy" in tomllib.loads(path.read_text(encoding="utf-8")).get("tool", {})
+    except (OSError, tomllib.TOMLDecodeError):
+        return False
+
+
+def _check_keys(table: dict, allowed: set[str], where: str, path: Path) -> None:
+    unknown = set(table) - allowed
+    if unknown:
+        raise CompileError(f"{path}: unknown {where} key(s): {', '.join(sorted(unknown))} "
+                           f"(allowed: {', '.join(sorted(allowed))})")
+
+
+def _load_assets(tables: object, root: Path, path: Path) -> tuple[Asset, ...]:
+    if not isinstance(tables, list):
+        raise CompileError(f"{path}: assets must be written as [[tool.tipy.assets]] tables")
+    assets, names = [], set()
+    for table in tables:
+        _check_keys(table, _ASSET_KEYS, "[[tool.tipy.assets]]", path)
+        if "source" not in table:
+            raise CompileError(f"{path}: every [[tool.tipy.assets]] table needs a source")
+        source = root / table["source"]
+        kind = table.get("kind") or _guess_asset_kind(source)
+        if kind not in ASSET_KINDS:
+            raise CompileError(f"{path}: asset kind must be one of {', '.join(ASSET_KINDS)}")
+        name = str(table.get("name") or re.sub(r"[^A-Za-z0-9]", "", source.stem)[:8]).upper()
+        if not re.fullmatch(r"[A-Z][A-Z0-9]{0,7}", name):
+            raise CompileError(f"{path}: asset name {name!r} must be 1-8 letters or digits, starting with a letter")
+        if name in names:
+            raise CompileError(f"{path}: two assets are named {name}")
+        names.add(name)
+        assets.append(Asset(source, kind, name, table.get("size"), table.get("mode", "rgb565")))
+    return tuple(assets)
+
+
+def _guess_asset_kind(source: Path) -> str:
+    suffix = source.suffix.lower()
+    if suffix in (".png", ".bmp", ".jpg", ".jpeg", ".gif"):
+        return "sprite"
+    if suffix in (".ttf", ".otf", ".fnt"):
+        return "font"
+    return "binary"
 
 
 def load_project(start: Path) -> ProjectConfig:
@@ -53,27 +159,160 @@ def load_project(start: Path) -> ProjectConfig:
     table = data.get("tool", {}).get("tipy")
     if table is None:
         raise CompileError(f"{path} has no [tool.tipy] section")
-    unknown = set(table) - {"name", "description", "main", "target", "bindir"}
-    if unknown:
-        raise CompileError(f"{path}: unknown [tool.tipy] key(s): {', '.join(sorted(unknown))}")
+    _check_keys(table, _TABLE_KEYS, "[tool.tipy]", path)
     root = path.parent
-    name = table.get("name") or data.get("project", {}).get("name", "")
-    name = re.sub(r"[^A-Za-z0-9]", "", str(name))[:8]
-    if not re.fullmatch(r"[A-Za-z0-9]{1,8}", name or ""):
-        raise CompileError(f"{path}: [tool.tipy] name must be 1-8 ASCII letters or digits")
+    explicit = table.get("name")
+    if explicit is not None:
+        name = str(explicit)
+        if not _ON_CALC_NAME.fullmatch(name):
+            raise CompileError(f"{path}: [tool.tipy] name must be 1-8 ASCII letters or digits, got {name!r}")
+    else:
+        fallback = data.get("project", {}).get("name") or root.name
+        name = re.sub(r"[^A-Za-z0-9]", "", str(fallback))[:8]
+        if not _ON_CALC_NAME.fullmatch(name):
+            raise CompileError(f"{path}: set [tool.tipy] name to 1-8 ASCII letters or digits")
     target = table.get("target", "ce")
     if target not in TARGETS:
         raise CompileError(f"{path}: target must be one of {', '.join(TARGETS)}")
     main = root / table.get("main", "src/main.py")
     if not main.is_file():
         raise CompileError(f"{path}: main source file not found: {main}")
+    toolchain = table.get("toolchain", {})
+    _check_keys(toolchain, _TOOLCHAIN_KEYS, "[tool.tipy.toolchain]", path)
+    flash_table = table.get("flash", {})
+    _check_keys(flash_table, _FLASH_KEYS, "[tool.tipy.flash]", path)
+    optimize = flash_table.get("optimize", "speed")
+    if optimize not in ("speed", "size"):
+        raise CompileError(f"{path}: [tool.tipy.flash] optimize must be speed or size")
+    project_dir = flash_table.get("project_dir")
+    flash = FlashConfig(root / project_dir if project_dir else None, optimize, flash_table.get("appvar_prefix"),
+                        flash_table.get("installer_name"), flash_table.get("appvar_split_size"))
+
+    def tool(key: str) -> str | None:
+        value = toolchain.get(key)
+        if value is None:
+            return None
+        candidate = root / value
+        return str(candidate) if candidate.is_file() else value
+
     return ProjectConfig(root=root, name=name, description=str(table.get("description", "")),
-                         main=main, target=target, bindir=root / table.get("bindir", "bin"))
+                         main=main, target=target, bindir=root / table.get("bindir", "bin"),
+                         keep_asm=bool(table.get("keep_asm", False)), ce_assembler=tool("ce_assembler"),
+                         classic_assembler=tool("classic_assembler"), flash=flash,
+                         assets=_load_assets(table.get("assets", []), root, path))
+
+
+# --------------------------------------------------------------------------
+# New projects.
+
+_MAIN_TEMPLATE = '''"""{name}: move the square with the arrow keys; press CLEAR to quit."""
+from ti84 import graphics, keyboard
+
+SIZE = 12
+
+
+def draw(x, y, color):
+    graphics.fill_rect(x, y, SIZE, SIZE, color)
+
+
+def main():
+    x = (graphics.width - SIZE) // 2
+    y = (graphics.height - SIZE) // 2
+    graphics.begin()
+    graphics.fill_screen(graphics.WHITE)
+    draw(x, y, graphics.BLUE)
+    while not keyboard.is_down(keyboard.CLEAR):
+        new_x = x + keyboard.is_down(keyboard.RIGHT) - keyboard.is_down(keyboard.LEFT)
+        new_y = y + keyboard.is_down(keyboard.DOWN) - keyboard.is_down(keyboard.UP)
+        new_x = max(0, min(new_x, graphics.width - SIZE))
+        new_y = max(0, min(new_y, graphics.height - SIZE))
+        if new_x != x or new_y != y:
+            draw(x, y, graphics.WHITE)
+            x, y = new_x, new_y
+            draw(x, y, graphics.BLUE)
+    graphics.end()
+
+
+main()
+'''
+
+_PYPROJECT_TEMPLATE = '''[tool.tipy]
+name = "{name}"
+description = "{description}"
+main = "src/main.py"
+target = "{target}"       # classic, ce, or both
+bindir = "bin"
+
+# Convert images into AppVars on every build, then use sprite.load("HERO"):
+# [[tool.tipy.assets]]
+# source = "assets/hero.png"
+# name = "HERO"
+'''
+
+_GITIGNORE_TEMPLATE = "bin/\n__pycache__/\n*.8xp\n*.8xv\n"
+
+
+def new_project(folder: Path, name: str | None = None, target: str = "ce") -> list[Path]:
+    """Create a buildable project; refuse to overwrite anything."""
+    folder = folder.resolve()
+    program = (name or re.sub(r"[^A-Za-z0-9]", "", folder.name)[:8]).upper()
+    if not _ON_CALC_NAME.fullmatch(program):
+        raise CompileError(f"cannot derive a program name from {folder.name!r}; pass --name with 1-8 letters or digits")
+    if target not in TARGETS:
+        raise CompileError(f"target must be one of {', '.join(TARGETS)}")
+    files = {
+        folder / "pyproject.toml": _PYPROJECT_TEMPLATE.format(name=program, description=f"{program} for TI-84", target=target),
+        folder / "src" / "main.py": _MAIN_TEMPLATE.format(name=program),
+        folder / ".gitignore": _GITIGNORE_TEMPLATE,
+    }
+    existing = [path for path in files if path.exists()]
+    if existing:
+        raise CompileError(f"not overwriting existing file(s): {', '.join(str(path) for path in existing)}")
+    for path, contents in files.items():
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(contents, encoding="utf-8")
+    return list(files)
+
+
+# --------------------------------------------------------------------------
+# Assets.
+
+def build_assets(config: ProjectConfig, force: bool = False) -> tuple[list[Path], list[Path]]:
+    """Convert assets that are out of date; return (written, unchanged) outputs."""
+    written, unchanged = [], []
+    for asset in config.assets:
+        if not asset.source.is_file():
+            raise CompileError(f"asset source not found: {asset.source}")
+        output = asset.output(config.bindir)
+        if not force and output.is_file() and output.stat().st_mtime >= asset.source.stat().st_mtime:
+            unchanged.append(output)
+            continue
+        written.extend(_convert_asset(asset, output))
+    return written, unchanged
+
+
+def _convert_asset(asset: Asset, output: Path) -> list[Path]:
+    if asset.kind == "sprite":
+        from .convimg import convert_sprite
+        return [convert_sprite(asset.source, output, asset.name)]
+    if asset.kind == "image":
+        from .convimg import convert
+        return convert(asset.source, output, "8xv", asset.name, asset.mode)
+    if asset.kind == "font":
+        from .convfont import convert
+        return [convert(asset.source, output, "8xv", asset.name, asset.size)]
+    from .convbin import MAX_VAR_SIZE, TYPE_APPVAR, ti_file
+    data = asset.source.read_bytes()
+    if len(data) > MAX_VAR_SIZE:
+        raise CompileError(f"{asset.source} is {len(data)} bytes, too large for one AppVar (max {MAX_VAR_SIZE})")
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_bytes(ti_file(TYPE_APPVAR, asset.name, data, archived=True))
+    return [output]
 
 
 # --------------------------------------------------------------------------
 # Multi-file sources: like CEdev compiling every file in src/, ``from name
-# import ...`` pulls ``name.py`` from the same folder into the program.
+# import ...`` pulls ``name.py`` (or ``folder/name.py``) into the program.
 
 @dataclass(frozen=True)
 class Segment:
@@ -82,10 +321,13 @@ class Segment:
     path: Path
 
 
+def _module_path(folder: Path, module: str) -> Path | None:
+    candidate = folder.joinpath(*module.split(".")).with_suffix(".py")
+    return candidate if candidate.is_file() else None
+
+
 def load_sources(main: Path) -> tuple[str, list[Segment]]:
     """Return the merged program text and a line map back to the original files."""
-    import ast
-
     folder = main.parent
     chunks: list[tuple[Path, str]] = []
     included: set[Path] = set()
@@ -100,21 +342,21 @@ def load_sources(main: Path) -> tuple[str, list[Segment]]:
         try:
             text = path.read_text(encoding="utf-8")
             tree = ast.parse(text)
-        except (OSError, SyntaxError) as exc:
-            where = getattr(exc, "lineno", None)
-            raise CompileError(f"{path.name}" + (f" line {where}" if where else "") + f": {getattr(exc, 'msg', exc)}") from exc
+        except OSError as exc:
+            raise CompileError(f"cannot read {path}: {exc.strerror or exc}") from exc
+        except SyntaxError as exc:
+            where = f" line {exc.lineno}" if exc.lineno else ""
+            raise CompileError(f"{path.name}{where}: {exc.msg}") from exc
         lines = text.splitlines()
         local_deps: list[Path] = []
         for node in tree.body:
             target = None
-            if isinstance(node, ast.ImportFrom) and node.level == 0 and node.module and "." not in node.module:
-                candidate = folder / f"{node.module}.py"
-                if candidate.is_file():
-                    target = candidate
-                    names = [a.name for a in node.names]
+            if isinstance(node, ast.ImportFrom) and node.level == 0 and node.module and node.module != "ti84":
+                target = _module_path(folder, node.module)
+                names = [a.name for a in node.names]
             elif isinstance(node, ast.Import):
                 for alias in node.names:
-                    if "." not in alias.name and (folder / f"{alias.name}.py").is_file():
+                    if _module_path(folder, alias.name):
                         raise CompileError(f"{path.name} line {node.lineno}: use 'from {alias.name} import NAME' "
                                            f"(plain 'import {alias.name}' is not supported for project files)")
             if target is None:
@@ -139,8 +381,6 @@ def load_sources(main: Path) -> tuple[str, list[Segment]]:
 
 
 def _check_names(module: Path, names: list[str], importer: str, lineno: int) -> None:
-    import ast
-
     if "*" in names:
         return
     defined: set[str] = set()
@@ -167,10 +407,23 @@ def translate_lines(message: str, segments: list[Segment]) -> str:
     return re.sub(r"(?<![\w.])line (\d+)", swap, message)
 
 
+def format_diagnostic(message: str, segments: list[Segment]) -> str:
+    """Render ``FILE:LINE: error: MESSAGE`` with the source line, as editors expect."""
+    match = re.match(r"line (\d+): (.*)", message, re.DOTALL)
+    if not match:
+        return f"tipy-asm: error: {translate_lines(message, segments)}"
+    number, detail = int(match.group(1)), match.group(2)
+    for segment in segments:
+        if segment.start <= number < segment.start + segment.length:
+            line = number - segment.start + 1
+            source = segment.path.read_text(encoding="utf-8").splitlines()
+            shown = f"\n    {source[line - 1].strip()}" if line <= len(source) else ""
+            return f"{segment.path}:{line}: error: {detail}{shown}"
+    return f"tipy-asm: error: {message}"
+
+
 def clean_project(config: "ProjectConfig") -> Path | None:
     """Delete the project's build folder (CEdev's ``make clean``); return it if removed."""
-    import shutil
-
     bindir = config.bindir.resolve()
     root = config.root.resolve()
     if bindir == root or root not in bindir.parents:

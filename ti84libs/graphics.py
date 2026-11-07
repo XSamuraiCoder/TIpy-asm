@@ -7,15 +7,6 @@ maps color 0 to white and any nonzero color to black.
 import ast
 
 from ti84asm.errors import CompileError
-from .util import literal_integer
-
-
-# Public calls handled by the standalone assembly backend. Keep this in sync
-# with the dispatch below and the shared IntelliSense stub.
-ASSEMBLY_API = {
-    "begin", "end", "clear", "wait_key", "delay", "pixel", "sprite", "text",
-    "line", "rect", "circle", "fill_rect", "triangle",
-}
 
 
 # RGB565 palette constants, usable as graphics.COLOR attributes in source.
@@ -82,20 +73,16 @@ FONT_5X7 = {
 }
 
 
-def emit_attribute(compiler, node: ast.Attribute) -> None:
-    if not isinstance(node.value, ast.Name) or compiler.modules.get(node.value.id) != "ti84.graphics":
-        raise CompileError("unsupported graphics constant")
-    if node.attr in ("width", "height"):
-        dimensions = ((96, 64) if compiler.target == "classic" else (320, 240))
-        value = dimensions[0 if node.attr == "width" else 1]
-        compiler.emit(f"    ld hl,{value}")
-        return
-    value = COLORS.get(node.attr.upper())
+def constant(compiler, name: str) -> int | None:
+    """Return a graphics constant in the target's own color format."""
+    if name in ("width", "height"):
+        return compiler.screen[0 if name == "width" else 1]
+    value = COLORS.get(name.upper())
     if value is None:
-        raise CompileError(f"unknown graphics constant: {node.attr}")
+        return None
     if compiler.target == "classic":
-        value = 0 if value == 0xFFFF else 1
-    compiler.emit(f"    ld hl,{value}")
+        return 0 if value == 0xFFFF else 1
+    return value
 
 
 def _emit_sprite(compiler, node: ast.Call) -> None:
@@ -557,16 +544,26 @@ def _emit_text(compiler, node: ast.Call) -> None:
     _emit_flush(compiler)
 
 
+def _constant_color(compiler, node: ast.expr) -> int | None:
+    """Return a color known at compile time, in the target's format, or None."""
+    if isinstance(node, ast.Constant) and isinstance(node.value, int) and not isinstance(node.value, bool):
+        if not 0 <= node.value <= 0xFFFF:
+            raise CompileError("colors must be in the range 0..65535")
+        return (0 if node.value == 0 else 1) if compiler.target == "classic" else node.value
+    value = compiler.constant_integer(node)
+    if value is None:
+        return None
+    if compiler.target == "classic":
+        return 0 if value == 0 else 1
+    return value
+
+
 def _color(compiler, node: ast.expr, purpose: str, default: int = 1) -> int:
     if node is None:
         return default
-    if isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name):
-        if compiler.modules.get(node.value.id) == "ti84.graphics" and node.attr.upper() in COLORS:
-            value = COLORS[node.attr.upper()]
-            return (0 if value == 0xFFFF else 1) if compiler.target == "classic" else value
-    value = literal_integer(node, purpose, allow_unsigned=compiler.target == "ce")
-    if compiler.target == "classic":
-        return 0 if value == 0 else 1
+    value = _constant_color(compiler, node)
+    if value is None:
+        raise CompileError(f"{purpose} must be a constant here; pass a color such as graphics.RED")
     return value
 
 
@@ -624,100 +621,101 @@ def _emit_line(compiler, x1: int, y1: int, x2: int, y2: int, color: int) -> None
             y1 += sy
 
 
-def emit_call(compiler, node: ast.Call) -> None:
-    if not isinstance(node.func, ast.Attribute):
-        raise CompileError("graphics calls must use a graphics library name")
+def _bind(compiler, node: ast.Call, *names: str) -> tuple[list[ast.expr], ast.expr]:
+    """Match a drawing call's arguments to ``names`` plus an optional trailing color."""
     method = node.func.attr
-    if method not in ASSEMBLY_API:
-        supported = ", ".join(f"graphics.{name}()" for name in sorted(ASSEMBLY_API))
-        raise CompileError(f"standalone assembly graphics supports {supported}")
+    signature = ", ".join((*names, "color=BLACK"))
+    values = list(node.args)
+    if len(values) > len(names) + 1:
+        raise CompileError(f"{method}() takes {signature}")
+    color = values.pop() if len(values) == len(names) + 1 else None
+    for keyword in node.keywords:
+        if keyword.arg == "color" and color is None:
+            color = keyword.value
+        else:
+            raise CompileError(f"{method}() takes {signature}")
+    if len(values) != len(names):
+        raise CompileError(f"{method}() takes {signature}")
+    return values, color if color is not None else ast.Constant(value=_default_color(compiler))
 
-    if method == "sprite":
-        _emit_sprite(compiler, node)
-    elif method == "text":
-        _emit_text(compiler, node)
-    elif method in ("begin", "end") and not node.args and not node.keywords:
-        if compiler.target == "ce":
-            if method == "begin":
-                compiler.emit("    call ti.RunIndicOff")
-            if method == "end":
-                compiler.emit("    call ti.DrawStatusBar")
-                compiler.emit("    ei")
-    elif method == "clear" and not node.args and not node.keywords:
-        if compiler.target == "classic":
-            compiler.emit("    bcall(_GrBufClr)")
-            compiler.emit("    bcall(_GrBufCpy)")
-        else:
-            compiler.emit("    call ti.RunIndicOff")
-            # Unlike the homescreen clear call, this clears all LCD VRAM,
-            # including the status-bar area, and does not redraw the bar.
-            compiler.emit("    call ti.boot.ClearVRAM")
-    elif method == "wait_key" and not node.args and not node.keywords:
-        released = compiler.label("wait_release")
-        wait = compiler.label("wait_key")
-        if compiler.target == "classic":
-            compiler.emit(released + ":")
-            compiler.emit("    bcall(_GetCSC)")
-            compiler.emit("    or a")
-            compiler.emit(f"    jr nz,{released}")
-            compiler.emit(wait + ":")
-            compiler.emit("    bcall(_GetCSC)")
-            compiler.emit("    or a")
-            compiler.emit(f"    jr z,{wait}")
-        else:
-            compiler.emit(released + ":")
-            compiler.emit("    call ti.GetCSC")
-            compiler.emit("    or a,a")
-            compiler.emit(f"    jr nz,{released}")
-            compiler.emit(wait + ":")
-            compiler.emit("    call ti.GetCSC")
-            compiler.emit("    or a,a")
-            compiler.emit(f"    jr z,{wait}")
-    elif method == "delay" and len(node.args) == 1 and not node.keywords:
-        cycles = literal_integer(node.args[0], "delay count", allow_unsigned=True)
-        if not 1 <= cycles <= 65535:
-            raise CompileError("delay() count must be from 1 to 65535")
-        loop = compiler.label("gfx_delay")
-        compiler.emit(f"    ld bc,{cycles}")
-        compiler.emit(loop + ":")
-        compiler.emit("    dec bc")
-        compiler.emit("    ld a,b")
-        compiler.emit("    or c")
-        compiler.emit(f"    jr nz,{loop}")
-    elif method == "pixel":
-        if node.keywords and (len(node.keywords) != 1 or node.keywords[0].arg != "color"):
-            raise CompileError("pixel() only accepts the color keyword")
-        if not 2 <= len(node.args) <= 3:
-            raise CompileError("pixel() takes x, y, and optional color")
-        if node.keywords and len(node.args) == 3:
-            raise CompileError("pixel color may be positional or keyword, not both")
-        args = list(node.args)
-        color = node.keywords[0].value if node.keywords else (args.pop() if len(args) == 3 else ast.Constant(value=1))
-        x, y = (literal_integer(arg, "pixel coordinates") for arg in args[:2])
-        color_value = _color(compiler, color, "pixel color", _default_color(compiler))
-        width, height = (96, 64) if compiler.target == "classic" else (320, 240)
-        if not (0 <= x < width and 0 <= y < height):
-            raise CompileError(f"{compiler.target} pixel coordinates must fit {width}x{height} screen")
-        _emit_pixel(compiler, x, y, color_value)
+
+def _all_constant(compiler, nodes: list[ast.expr]) -> list[int] | None:
+    values = [compiler.constant_integer(node) for node in nodes]
+    return None if any(value is None for value in values) else values
+
+
+def _minus_one(node: ast.expr) -> ast.expr:
+    return ast.BinOp(left=node, op=ast.Sub(), right=ast.Constant(value=1))
+
+
+def _emit_wait_key(compiler) -> None:
+    get_csc = compiler.spec.rom("GetCSC")
+    released, wait = compiler.label("wait_release"), compiler.label("wait_key")
+    compiler.emit(released + ":")
+    compiler.emit(f"    {get_csc}")
+    compiler.emit("    or a")
+    compiler.emit(f"    jr nz,{released}")
+    compiler.emit(wait + ":")
+    compiler.emit(f"    {get_csc}")
+    compiler.emit("    or a")
+    compiler.emit(f"    jr z,{wait}")
+
+
+def _emit_text_int(compiler, node: ast.Call) -> None:
+    (value, x, y), color_node = _bind(compiler, node, "value", "x", "y")
+    color = _color(compiler, color_node, "text color")
+    red, green, blue = (color >> 11) & 0x1F, (color >> 5) & 0x3F, color & 0x1F
+    compiler.emit(f"    ld hl,{(blue << 11) | (green << 5) | red}")
+    compiler.emit("    push hl")
+    compiler.emit("    call ti.os.SetDrawFGColor")
+    compiler.emit("    pop hl")
+    compiler.expression(y)
+    compiler.emit("    push hl")
+    compiler.expression(x)
+    compiler.emit("    push hl")
+    compiler.expression(value)
+    compiler.use_helper("_rt_itoa")
+    compiler.emit("    call _rt_itoa")
+    compiler.emit("    push hl")
+    compiler.emit("    call ti.os.FontDrawText")
+    compiler.emit("    ld hl,9")
+    compiler.emit("    add hl,sp")
+    compiler.emit("    ld sp,hl")
+
+
+def _emit_shape(compiler, node: ast.Call, method: str) -> None:
+    """Literal shapes are lowered at compile time; anything else runs in the prelude."""
+    screen_width, screen_height = compiler.screen
+    if method == "pixel":
+        values, color_node = _bind(compiler, node, "x", "y")
+        known, color = _all_constant(compiler, values), _constant_color(compiler, color_node)
+        if known is None or color is None:
+            compiler.call_raw("_rt_pixel", [*values, color_node])
+            return
+        x, y = known
+        if not (0 <= x < screen_width and 0 <= y < screen_height):
+            raise CompileError(f"{compiler.target} pixel coordinates must fit {screen_width}x{screen_height} screen")
+        _emit_pixel(compiler, x, y, color)
         _emit_flush(compiler)
     elif method == "line":
-        if node.keywords or len(node.args) not in (4, 5):
-            raise CompileError("line() takes x1, y1, x2, y2, and optional color")
-        x1, y1, x2, y2 = (literal_integer(arg, "line coordinates") for arg in node.args[:4])
-        color = _color(compiler, node.args[4], "line color", _default_color(compiler)) if len(node.args) == 5 else _default_color(compiler)
-        width, height = (96, 64) if compiler.target == "classic" else (320, 240)
-        if any(not (0 <= x < width and 0 <= y < height) for x, y in ((x1, y1), (x2, y2))):
-            raise CompileError(f"{compiler.target} line coordinates must fit {width}x{height} screen")
+        values, color_node = _bind(compiler, node, "x1", "y1", "x2", "y2")
+        known, color = _all_constant(compiler, values), _constant_color(compiler, color_node)
+        if known is None or color is None:
+            compiler.call_function("_tipy_line", [*values, color_node])
+            return
+        x1, y1, x2, y2 = known
+        if any(not (0 <= x < screen_width and 0 <= y < screen_height) for x, y in ((x1, y1), (x2, y2))):
+            raise CompileError(f"{compiler.target} line coordinates must fit {screen_width}x{screen_height} screen")
         _emit_line(compiler, x1, y1, x2, y2, color)
-        if compiler.target != "classic":
-            _emit_flush(compiler)
     elif method == "rect":
-        if node.keywords or len(node.args) not in (4, 5):
-            raise CompileError("rect() takes x, y, width, height, and optional color")
-        x, y, rect_width, rect_height = (literal_integer(arg, "rectangle values") for arg in node.args[:4])
-        color = _color(compiler, node.args[4], "rectangle color", _default_color(compiler)) if len(node.args) == 5 else _default_color(compiler)
-        screen_width, screen_height = (96, 64) if compiler.target == "classic" else (320, 240)
-        if rect_width < 1 or rect_height < 1 or x + rect_width >= screen_width or y + rect_height >= screen_height:
+        values, color_node = _bind(compiler, node, "x", "y", "width", "height")
+        known, color = _all_constant(compiler, values), _constant_color(compiler, color_node)
+        if known is None or color is None:
+            compiler.call_function("_tipy_rect", [*values, color_node])
+            return
+        x, y, rect_width, rect_height = known
+        if rect_width < 1 or rect_height < 1 or x < 0 or y < 0 \
+                or x + rect_width >= screen_width or y + rect_height >= screen_height:
             raise CompileError(f"rectangle must fit within the {screen_width}x{screen_height} screen")
         if compiler.target == "classic":
             upper_left = (y << 8) | x
@@ -725,21 +723,19 @@ def emit_call(compiler, node: ast.Call) -> None:
             compiler.emit("    res plotLoc,(iy+plotFlags)")
             compiler.emit(f"    ld hl,{upper_left}")
             compiler.emit(f"    ld de,{lower_right}")
-            routine = "_EraseRectBorder" if color == 0 else "_DrawRectBorder"
-            compiler.emit(f"    bcall({routine})")
+            compiler.emit(f"    bcall({'_EraseRectBorder' if color == 0 else '_DrawRectBorder'})")
         else:
             _emit_line(compiler, x, y, x + rect_width, y, color)
             _emit_line(compiler, x + rect_width, y, x + rect_width, y + rect_height, color)
             _emit_line(compiler, x + rect_width, y + rect_height, x, y + rect_height, color)
             _emit_line(compiler, x, y + rect_height, x, y, color)
-        if compiler.target != "classic":
-            _emit_flush(compiler)
     elif method == "circle":
-        if node.keywords or len(node.args) not in (3, 4):
-            raise CompileError("circle() takes center_x, center_y, radius, and optional color")
-        cx, cy, radius = (literal_integer(arg, "circle values") for arg in node.args[:3])
-        color = _color(compiler, node.args[3], "circle color", _default_color(compiler)) if len(node.args) == 4 else _default_color(compiler)
-        screen_width, screen_height = (96, 64) if compiler.target == "classic" else (320, 240)
+        values, color_node = _bind(compiler, node, "x", "y", "radius")
+        known, color = _all_constant(compiler, values), _constant_color(compiler, color_node)
+        if known is None or color is None:
+            compiler.call_function("_tipy_circle", [*values, color_node])
+            return
+        cx, cy, radius = known
         if radius < 1 or cx - radius < 0 or cy - radius < 0 or cx + radius >= screen_width or cy + radius >= screen_height:
             raise CompileError(f"circle must fit within the {screen_width}x{screen_height} screen")
         x, y, error = radius, 0, 1 - radius
@@ -755,23 +751,90 @@ def emit_call(compiler, node: ast.Call) -> None:
                 x -= 1
                 error += 2 * (y - x) + 1
         _emit_flush(compiler)
-    elif method == "fill_rect":
-        if node.keywords or len(node.args) not in (4, 5):
-            raise CompileError("fill_rect() takes x, y, width, height, and optional color")
-        x, y, rect_width, rect_height = (literal_integer(arg, "filled rectangle values") for arg in node.args[:4])
-        color = _color(compiler, node.args[4], "filled rectangle color", _default_color(compiler)) if len(node.args) == 5 else _default_color(compiler)
-        if rect_width < 1 or rect_height < 1:
-            raise CompileError("filled rectangle width and height must be positive")
-        _emit_fill_rect(compiler, x, y, rect_width, rect_height, color)
-        if compiler.target != "classic":
-            _emit_flush(compiler)
+    elif method in ("fill_rect", "fill_rectangle"):
+        values, color_node = _bind(compiler, node, "x", "y", "width", "height")
+        _emit_filled(compiler, values, color_node)
+    elif method == "horiz_line":
+        (x, y, length), color_node = _bind(compiler, node, "x", "y", "length")
+        _emit_filled(compiler, [x, y, length, ast.Constant(value=1)], color_node)
+    elif method == "vert_line":
+        (x, y, length), color_node = _bind(compiler, node, "x", "y", "length")
+        _emit_filled(compiler, [x, y, ast.Constant(value=1), length], color_node)
+    elif method == "rectangle":
+        (x, y, rect_width, rect_height), color_node = _bind(compiler, node, "x", "y", "width", "height")
+        compiler.call_function("_tipy_rect", [x, y, _minus_one(rect_width), _minus_one(rect_height), color_node])
+    elif method == "fill_circle":
+        values, color_node = _bind(compiler, node, "x", "y", "radius")
+        compiler.call_function("_tipy_fill_circle", [*values, color_node])
     elif method == "triangle":
-        if node.keywords or len(node.args) not in (6, 7):
-            raise CompileError("triangle() takes three x/y points and optional color")
-        values = tuple(literal_integer(arg, "triangle coordinates") for arg in node.args[:6])
-        color = _color(compiler, node.args[6], "triangle color", _default_color(compiler)) if len(node.args) == 7 else _default_color(compiler)
-        points = ((values[0], values[1]), (values[2], values[3]), (values[4], values[5]))
-        _emit_filled_triangle(compiler, points, color)
+        values, color_node = _bind(compiler, node, "x1", "y1", "x2", "y2", "x3", "y3")
+        known, color = _all_constant(compiler, values), _constant_color(compiler, color_node)
+        if known is None or color is None:
+            compiler.call_function("_tipy_triangle", [*values, color_node])
+            return
+        _emit_filled_triangle(compiler, ((known[0], known[1]), (known[2], known[3]), (known[4], known[5])), color)
         _emit_flush(compiler)
-    else:
-        raise CompileError("graphics supports sprite(), text(), clear(), pixel(), line(), rect(), fill_rect(), triangle(), circle(), delay(), and wait_key()")
+
+
+def _emit_filled(compiler, values: list[ast.expr], color_node: ast.expr) -> None:
+    known, color = _all_constant(compiler, values), _constant_color(compiler, color_node)
+    if known is None or color is None:
+        compiler.call_function("_tipy_fill_rect", [*values, color_node])
+        return
+    if known[2] < 1 or known[3] < 1:
+        raise CompileError("filled rectangle width and height must be positive")
+    _emit_fill_rect(compiler, *known, color)
+
+
+_SHAPES = {"pixel", "line", "rect", "rectangle", "circle", "fill_rect", "fill_rectangle", "fill_circle",
+           "triangle", "horiz_line", "vert_line"}
+
+
+def emit_call(compiler, node: ast.Call) -> None:
+    method = node.func.attr
+    if method in _SHAPES:
+        _emit_shape(compiler, node, method)
+    elif method == "sprite":
+        _emit_sprite(compiler, node)
+    elif method == "text":
+        _emit_text(compiler, node)
+    elif method == "text_int":
+        _emit_text_int(compiler, node)
+    elif method == "get_pixel":
+        if len(node.args) != 2 or node.keywords:
+            raise CompileError("get_pixel() takes x and y")
+        compiler.call_raw("_rt_get_pixel", list(node.args))
+    elif method == "fill_screen":
+        if node.keywords or len(node.args) > 1:
+            raise CompileError("fill_screen() takes one optional color")
+        white = 0 if compiler.target == "classic" else COLORS["WHITE"]
+        color_node = node.args[0] if node.args else ast.Constant(value=white)
+        _emit_filled(compiler, [ast.Constant(value=0), ast.Constant(value=0),
+                                ast.Constant(value=compiler.screen[0]), ast.Constant(value=compiler.screen[1])], color_node)
+    elif method == "delay":
+        if len(node.args) != 1 or node.keywords:
+            raise CompileError("delay() takes one count")
+        count = compiler.constant_integer(node.args[0])
+        if count is not None and not 1 <= count <= 65535:
+            raise CompileError("delay() count must be from 1 to 65535")
+        compiler.call_raw("_rt_delay", [node.args[0]])
+    elif node.args or node.keywords:
+        raise CompileError(f"{method}() takes no arguments")
+    elif method == "wait_key":
+        _emit_wait_key(compiler)
+    elif method in ("begin", "end"):
+        if compiler.target == "ce":
+            if method == "begin":
+                compiler.emit("    call ti.RunIndicOff")
+            else:
+                compiler.emit("    call ti.DrawStatusBar")
+                compiler.emit("    ei")
+    elif method == "clear":
+        if compiler.target == "classic":
+            compiler.emit("    bcall(_GrBufClr)")
+            compiler.emit("    bcall(_GrBufCpy)")
+        else:
+            compiler.emit("    call ti.RunIndicOff")
+            # Unlike the homescreen clear call, this clears all LCD VRAM,
+            # including the status-bar area, and does not redraw the bar.
+            compiler.emit("    call ti.boot.ClearVRAM")

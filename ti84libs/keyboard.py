@@ -29,40 +29,34 @@ def key_code(name: str) -> int | None:
     return KEYS.get(key)
 
 
-def emit_call(compiler, node: ast.Call) -> None:
-    if not isinstance(node.func, ast.Attribute) or node.func.attr != "read" or node.args or node.keywords:
-        raise CompileError("keyboard supports read() with no arguments")
+def _load_scan_code(compiler) -> None:
+    # In ADL mode LD L,A leaves the upper byte of HL alone, so clear it first.
+    compiler.emit("    ld hl,0")
+    compiler.emit("    ld l,a")
 
+
+def emit_call(compiler, node: ast.Call) -> None:
+    method = node.func.attr
+    if method == "is_down":
+        if len(node.args) != 1 or node.keywords:
+            raise CompileError("keyboard.is_down() takes one key")
+        compiler.call_function("_tipy_is_down", [node.args[0]])
+        return
+    if node.args or node.keywords:
+        raise CompileError(f"keyboard.{method}() takes no arguments")
+    get_csc = compiler.spec.rom("GetCSC")
+    if method == "get":
+        compiler.emit(f"    {get_csc}")
+        _load_scan_code(compiler)
+        return
     released = compiler.label("key_release")
     wait = compiler.label("key_wait")
-    if compiler.target == "classic":
-        compiler.emit(released + ":")
-        compiler.emit("    bcall(_GetCSC)")
-        compiler.emit("    or a")
-        compiler.emit(f"    jr nz,{released}")
-        compiler.emit(wait + ":")
-        compiler.emit("    bcall(_GetCSC)")
-        compiler.emit("    or a")
-        compiler.emit(f"    jr z,{wait}")
-        compiler.emit("    ld l,a")
-        compiler.emit("    ld h,0")
-    else:
-        compiler.emit(released + ":")
-        compiler.emit("    call ti.GetCSC")
-        compiler.emit("    or a,a")
-        compiler.emit(f"    jr nz,{released}")
-        compiler.emit(wait + ":")
-        compiler.emit("    call ti.GetCSC")
-        compiler.emit("    or a,a")
-        compiler.emit(f"    jr z,{wait}")
-        compiler.emit("    ld l,a")
-        compiler.emit("    ld h,0")
-
-
-def emit_expression(compiler, node: ast.Attribute) -> None:
-    if not isinstance(node.value, ast.Name):
-        raise CompileError("keyboard constants use keyboard.KEY_NAME")
-    code = key_code(node.attr)
-    if code is None:
-        raise CompileError(f"unknown keyboard key: {node.attr}")
-    compiler.emit(f"    ld hl,{code}")
+    compiler.emit(released + ":")
+    compiler.emit(f"    {get_csc}")
+    compiler.emit("    or a")
+    compiler.emit(f"    jr nz,{released}")
+    compiler.emit(wait + ":")
+    compiler.emit(f"    {get_csc}")
+    compiler.emit("    or a")
+    compiler.emit(f"    jr z,{wait}")
+    _load_scan_code(compiler)

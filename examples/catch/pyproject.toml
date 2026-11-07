@@ -1,0 +1,6 @@
+[tool.tipy]
+name = "CATCH"
+description = "Catch the falling blocks"
+main = "src/main.py"
+target = "both"
+bindir = "bin"

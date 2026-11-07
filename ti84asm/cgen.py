@@ -114,6 +114,8 @@ class FlashAppCompiler:
         self.uses_storage = False
         self.final = False
         self.cur: _Func | None = None
+        self.named_constants: dict[str, ast.expr] = {}
+        self.learning_errors: dict[int, str] = {}
         self._reset()
 
     # ----------------------------------------------------------------- driver
@@ -132,9 +134,17 @@ class FlashAppCompiler:
         self._validate_definite_assignment()
         for _ in range(3):          # learn variable/return types; errors are not final yet
             self.final = False
+            self.learning_errors = {}
             self._generate()
         self.final = True
-        return self._generate()
+        try:
+            return self._generate()
+        except CompileError as exc:
+            # Functions are generated first, so a failed module statement shows up
+            # as an undefined name in a function. Report the failure that caused it.
+            if "is not defined" in str(exc) and self.learning_errors:
+                raise CompileError(self.learning_errors[min(self.learning_errors)]) from None
+            raise
 
     def _collect(self, tree: ast.Module) -> None:
         for stmt in tree.body:
@@ -162,6 +172,20 @@ class FlashAppCompiler:
                 self.global_names.update(_assigned_names(sub))
         for fn in self.funcs.values():
             self.global_names.update(fn.globals)
+        self._collect_named_constants()
+
+    def _collect_named_constants(self) -> None:
+        """Find module names assigned exactly once and never written by a function."""
+        counts: dict[str, int] = {}
+        for stmt in self.main_body:
+            for sub in ast.walk(stmt):
+                for name in _assigned_names(sub):
+                    counts[name] = counts.get(name, 0) + 1
+        written = {name for fn in self.funcs.values() for name in fn.globals}
+        for stmt in self.main_body:
+            if (isinstance(stmt, ast.Assign) and len(stmt.targets) == 1 and isinstance(stmt.targets[0], ast.Name)
+                    and counts.get(stmt.targets[0].id) == 1 and stmt.targets[0].id not in written):
+                self.named_constants[stmt.targets[0].id] = stmt.value
 
     def _validate_definite_assignment(self) -> None:
         """Reject reads that would silently consume C zero-init values."""
@@ -362,9 +386,11 @@ class FlashAppCompiler:
                 self.fail(f"unsupported statement {type(node).__name__}")
             handler(node)
         except CompileError as exc:
-            if not self.final:
-                return
             text = str(exc)
+            if not self.final:
+                self.learning_errors.setdefault(
+                    node.lineno, text if text.startswith("line ") else f"line {node.lineno}: {text}")
+                return
             if not text.startswith("line "):
                 raise CompileError(f"line {node.lineno}: {text}") from None
             raise
@@ -590,6 +616,27 @@ class FlashAppCompiler:
             return a + b if isinstance(node.op, ast.Add) else a - b if isinstance(node.op, ast.Sub) else a * b
         return None
 
+    def required_const(self, node: ast.expr, seen: frozenset[str] = frozenset()) -> int | None:
+        """Evaluate where only a constant will do, allowing names assigned once.
+
+        Elsewhere such a name stays a variable, with its usual runtime behavior.
+        """
+        if isinstance(node, ast.Name):
+            value = self.named_constants.get(node.id)
+            shadowed = self.cur is not None and node.id in self.cur.locals and node.id not in self.cur.globals
+            if value is None or shadowed or node.id in seen:
+                return None
+            return self.required_const(value, seen | {node.id})
+        if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub):
+            inner = self.required_const(node.operand, seen)
+            return -inner if inner is not None else None
+        if isinstance(node, ast.BinOp) and isinstance(node.op, (ast.Add, ast.Sub, ast.Mult)):
+            a, b = self.required_const(node.left, seen), self.required_const(node.right, seen)
+            if a is None or b is None:
+                return None
+            return a + b if isinstance(node.op, ast.Add) else a - b if isinstance(node.op, ast.Sub) else a * b
+        return self.const_value(node)
+
     def x__Raw(self, node: _Raw): return node.code, node.ty
 
     def x_Constant(self, node: ast.Constant) -> tuple[str, str]:
@@ -631,6 +678,8 @@ class FlashAppCompiler:
                     self.fail(f"unknown keyboard key name: {node.attr}")
                 return str(code), INT
             if module == "ti84.graphics":
+                if node.attr in ("width", "height"):
+                    return ("320" if node.attr == "width" else "240"), INT
                 color = RGB565_COLORS.get(node.attr.upper())
                 if color is None:
                     self.fail(f"unknown graphics color: {node.attr}")
@@ -729,7 +778,7 @@ class FlashAppCompiler:
     def list_fill(self, lst: ast.List, count: ast.expr) -> tuple[str, str]:
         if len(lst.elts) != 1:
             self.fail("use [value] * count to build a list")
-        n = self.const_value(count)
+        n = self.required_const(count)
         if n is None or n < 0 or n > 8192:
             self.fail("list size must be a constant between 0 and 8192")
         value = self.int_expr(lst.elts[0])

@@ -147,7 +147,7 @@ def to_mono(rgb565: int, threshold: int = 128) -> int:
         threshold: Luminance threshold (0-255), default 128
         
     Returns:
-        0 (black) or 1 (white)
+        0 (white, a bright color) or 1 (black, a dark color)
     """
     rgb = to_rgb(rgb565)
     return rgb.to_mono(threshold)
@@ -157,12 +157,12 @@ def from_mono(mono: int) -> int:
     """Convert monochrome color to RGB565.
     
     Args:
-        mono: 0 (black) or 1 (white)
+        mono: 0 (white) or nonzero (black), the classic screen's convention
         
     Returns:
-        RGB565 color (BLACK or WHITE)
+        RGB565 color (WHITE or BLACK)
     """
-    return BLACK if mono == 0 else WHITE
+    return WHITE if mono == 0 else BLACK
 
 
 def is_valid_rgb565(value: int) -> bool:
@@ -213,150 +213,97 @@ def blend(color1: int, color2: int, factor: float = 0.5) -> int:
     return from_rgb(r, g, b)
 
 
-# Public API for the assembly backend
-ASSEMBLY_API = {
-    "from_rgb",
-    "to_rgb",
-    "to_grayscale",
-    "to_mono",
-    "from_mono",
-    "invert",
-    "blend",
-    "is_valid",
-}
+CONSTANTS = {name: value for name, value in list(globals().items())
+             if name.isupper() and isinstance(value, int) and not name.startswith("MONO_")}
 
 
-def _emit_from_rgb(compiler, node: ast.Call) -> None:
-    """Emit from_rgb color conversion."""
-    if len(node.args) != 3 or node.keywords:
-        raise CompileError("color.from_rgb() takes r, g, b (0-255)")
-    
-    r = compiler.constant_integer(node.args[0])
-    g = compiler.constant_integer(node.args[1])
-    b = compiler.constant_integer(node.args[2])
-    
-    if r is None or g is None or b is None:
-        raise CompileError("color.from_rgb() requires constant values")
-    
-    if not (0 <= r <= 255 and 0 <= g <= 255 and 0 <= b <= 255):
-        raise CompileError("color.from_rgb() values must be 0-255")
-    
-    # Convert to RGB565
-    r5 = (r >> 3) & 0x1F
-    g6 = (g >> 2) & 0x3F
-    b5 = (b >> 3) & 0x1F
-    rgb565 = (r5 << 11) | (g6 << 5) | b5
-    
+def constant(compiler, name: str) -> int | None:
+    """Return a color constant in the target's own color format."""
+    value = CONSTANTS.get(name.upper())
+    if value is None:
+        return None
     if compiler.target == "classic":
-        # For classic, convert to monochrome
-        rgb = RGB(r, g, b)
-        mono = rgb.to_mono()
-        compiler.emit(f"    ld hl,{0 if mono else 1}")
-    else:
-        compiler.emit(f"    ld hl,{rgb565}")
+        return 0 if value == WHITE else 1
+    return value
 
 
-def _emit_to_rgb(compiler, node: ast.Call) -> None:
-    """Emit to_rgb color conversion."""
-    if len(node.args) != 1 or node.keywords:
-        raise CompileError("color.to_rgb() takes one RGB565 color")
-    
-    # This returns an RGB object, not a simple value
-    # For now, we'll just return the color value
-    compiler.expression(node.args[0])
+def _channels(compiler, node: ast.Call) -> list[int] | None:
+    values = [compiler.constant_integer(argument) for argument in node.args]
+    return None if any(value is None for value in values) else values
 
 
-def _emit_to_grayscale(compiler, node: ast.Call) -> None:
-    """Emit to_grayscale color conversion."""
-    if len(node.args) != 1 or node.keywords:
-        raise CompileError("color.to_grayscale() takes one RGB565 color")
-    
-    # Convert to grayscale
-    color_val = compiler.constant_integer(node.args[0])
-    if color_val is not None:
-        gray = to_grayscale(color_val)
-        compiler.emit(f"    ld hl,{gray}")
-    else:
-        # Runtime conversion
-        compiler.emit("    ; color.to_grayscale() - TODO: runtime conversion")
+def constant_call(compiler, node: ast.Call) -> int | None:
+    """Fold a color call whose arguments are all constants; None if it must run."""
+    method = node.func.attr
+    if node.keywords:
+        return None
+    if method == "blend":
+        return _constant_blend(compiler, node)
+    values = _channels(compiler, node)
+    if values is None:
+        return None
+    classic = compiler.target == "classic"
+    if method == "from_rgb" and len(values) == 3:
+        if not all(0 <= value <= 255 for value in values):
+            raise CompileError("color.from_rgb() values must be 0-255")
+        return RGB(*values).to_mono() if classic else from_rgb(*values)
+    if len(values) != 1:
+        return None
+    value = values[0]
+    if method == "to_mono":
+        return (0 if value == 0 else 1) if classic else to_mono(value)
+    if method == "from_mono":
+        return (0 if value == 0 else 1) if classic else from_mono(value)
+    if method == "is_valid":
+        return 1 if classic or is_valid_rgb565(value) else 0
+    if classic:
+        return None
+    if method == "invert":
+        return invert(value)
+    if method == "to_grayscale":
+        return to_grayscale(value)
+    return None
 
 
-def _emit_to_mono(compiler, node: ast.Call) -> None:
-    """Emit to_mono color conversion."""
-    if len(node.args) not in (1, 2) or node.keywords:
-        raise CompileError("color.to_mono() takes RGB565 color and optional threshold")
-    
-    color_val = compiler.constant_integer(node.args[0])
-    threshold = compiler.constant_integer(node.args[1]) if len(node.args) == 2 else 128
-    
-    if color_val is not None and threshold is not None:
-        mono = to_mono(color_val, threshold)
-        compiler.emit(f"    ld hl,{0 if mono else 1}")
-    else:
-        # Runtime conversion
-        compiler.emit("    ; color.to_mono() - TODO: runtime conversion")
+def _constant_blend(compiler, node: ast.Call) -> int | None:
+    if compiler.target == "classic":
+        return None
+    if len(node.args) not in (2, 3):
+        raise CompileError("color.blend() takes color1, color2, and an optional factor from 0.0 to 1.0")
+    first, second = compiler.constant_integer(node.args[0]), compiler.constant_integer(node.args[1])
+    factor = 0.5
+    if len(node.args) == 3:
+        literal = node.args[2]
+        if not isinstance(literal, ast.Constant) or not isinstance(literal.value, (int, float)):
+            raise CompileError("color.blend() factor must be a number literal")
+        factor = literal.value
+    if first is None or second is None:
+        raise CompileError("color.blend() needs constant colors")
+    return blend(first, second, factor)
 
 
-def _emit_from_mono(compiler, node: ast.Call) -> None:
-    """Emit from_mono color conversion."""
-    if len(node.args) != 1 or node.keywords:
-        raise CompileError("color.from_mono() takes 0 or 1")
-    
-    mono = compiler.constant_integer(node.args[0])
-    if mono is not None:
-        rgb565 = from_mono(mono)
-        compiler.emit(f"    ld hl,{rgb565}")
-    else:
-        # Runtime conversion
-        compiler.emit("    ; color.from_mono() - TODO: runtime conversion")
-
-
-def _emit_invert(compiler, node: ast.Call) -> None:
-    """Emit invert color operation."""
-    if len(node.args) != 1 or node.keywords:
-        raise CompileError("color.invert() takes one RGB565 color")
-    
-    color_val = compiler.constant_integer(node.args[0])
-    if color_val is not None:
-        inverted = invert(color_val)
-        compiler.emit(f"    ld hl,{inverted}")
-    else:
-        # Runtime inversion
-        compiler.emit("    ; color.invert() - TODO: runtime conversion")
-
-
-def _emit_blend(compiler, node: ast.Call) -> None:
-    """Emit blend color operation."""
-    if len(node.args) not in (2, 3) or node.keywords:
-        raise CompileError("color.blend() takes color1, color2, and optional factor")
-    
-    # Blending is complex, skip for now
-    compiler.emit("    ; color.blend() - TODO: implement blending")
+_RUNTIME = {"from_rgb": ("_tipy_from_rgb", 3), "to_mono": ("_tipy_to_mono", 1), "from_mono": ("_tipy_from_mono", 1),
+            "invert": ("_tipy_invert", 1), "to_grayscale": ("_tipy_grayscale", 1), "is_valid": ("_tipy_is_valid", 1)}
 
 
 def emit_call(compiler, node: ast.Call) -> None:
-    """Emit a color library call."""
-    if not isinstance(node.func, ast.Attribute):
-        raise CompileError("color calls must use a color library name")
-    
+    """Emit a color call: folded when constant, otherwise a runtime function."""
     method = node.func.attr
-    
-    if method == "from_rgb":
-        _emit_from_rgb(compiler, node)
-    elif method == "to_rgb":
-        _emit_to_rgb(compiler, node)
-    elif method == "to_grayscale":
-        _emit_to_grayscale(compiler, node)
-    elif method == "to_mono":
-        _emit_to_mono(compiler, node)
-    elif method == "from_mono":
-        _emit_from_mono(compiler, node)
-    elif method == "invert":
-        _emit_invert(compiler, node)
-    elif method == "blend":
-        _emit_blend(compiler, node)
-    elif method == "is_valid":
-        compiler.emit("    ; color.is_valid() - TODO: implement")
-    else:
-        supported = ", ".join(f"color.{name}()" for name in sorted(ASSEMBLY_API))
-        raise CompileError(f"color library supports {supported}")
+    if node.keywords:
+        raise CompileError(f"color.{method}() uses positional arguments")
+    folded = constant_call(compiler, node)
+    if folded is not None:
+        compiler.emit(f"    ld hl,{compiler.integer_literal(folded)}")
+        return
+    function, arity = _RUNTIME[method]
+    if len(node.args) != arity:
+        raise CompileError(f"color.{method}() takes {arity} argument(s), got {len(node.args)}")
+    classic = compiler.target == "classic"
+    if classic and method == "from_rgb":
+        function = "_tipy_from_rgb_mono"
+    elif classic and method in ("to_mono", "from_mono"):
+        function = "_tipy_bool"
+    elif classic and method == "is_valid":
+        compiler.emit("    ld hl,1")
+        return
+    compiler.call_function(function, list(node.args))

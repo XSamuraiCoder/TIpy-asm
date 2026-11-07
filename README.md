@@ -5,95 +5,163 @@ a compiler for writing TI calculator programs in a restricted, Python-like
 language. It compiles source on a computer; Python itself does not run on the
 calculator.
 
-## Targets
-
-- **Classic TI-83+/TI-84 Plus:** compile the supported Python subset to Z80
-  assembly or build a `.8xp` program with SPASM-ng.
-- **TI-84 Plus CE assembly:** compile to eZ80 assembly or build a `.8xp` program
-  with fasmg.
-- **TI-84 Plus CE Flash App:** translate the supported subset to C, then build
-  and package it with CEdev and an installer project.
-
-The language is not full CPython. Supported syntax and built-in libraries vary
-by target: the assembly compiler supports a smaller subset than the Flash App
-backend. Calculator APIs such as graphics, keyboard input, math, and persistent
-storage are provided by `ti84libs` where implemented for that target.
-The `ti84` package includes editor-only type stubs, so VS Code/Pylance can
-complete imports such as `from ti84 import graphics, keyboard, math, storage,
-file, random, graph`. The stubs describe calculator APIs; they do not provide
-desktop Python runtime implementations. Library availability varies by target.
-The standalone `compile` and `build` assembly backends currently provide
-`graphics`, `keyboard`, `math`, and `storage`; `file`, `random`, and `graph`
-are Flash App APIs. Using one of those Flash App APIs for assembly output gives
-an error that points to the `flash-app` command.
-
-## Install
+## Quick start
 
 Requires Python 3.10 or newer:
 
 ```powershell
 python -m pip install .
+tipy-asm new mygame
+cd mygame
+tipy-asm build
 ```
 
-The package installs the `tipy-asm` command and the shorter alias `ti84py`.
-CE assembly builds use fasmg; the CLI can download fasmg and required include
-files when they are unavailable locally. Classic builds require SPASM-ng; the
-CLI can fetch its TI-83 Plus system include when it is missing. Explicit
-`--name` values must be 1-8 ASCII letters or digits; source filenames are
-normalized to a valid calculator program name automatically.
-Flash App builds require CEdev and a project directory containing an installer
-makefile.
+That creates a program you can move around with the arrow keys, and writes
+`bin\MYGAME.8xp`. CE builds need nothing else and work offline: the package
+includes fasmg for Windows and Linux (x64 and x86), plus its CE includes. On other
+systems, put fasmg on PATH. Run `tipy-asm doctor` to see what is installed.
 
-## Usage
+`examples\catch` is a complete small game. The package also installs the shorter
+command alias `ti84py`.
 
-Compile to assembly without assembling:
+## Targets
+
+- **TI-84 Plus CE assembly:** eZ80 assembly, or a `.8xp` program built with the
+  bundled fasmg.
+- **Classic TI-83+/TI-84 Plus:** Z80 assembly, or a `.8xp` program built with
+  SPASM-ng, which you install yourself.
+- **TI-84 Plus CE Flash App:** translated to C, then built and packaged with
+  CEdev and an installer project that you provide.
+
+## Commands
+
+| Command | What it does |
+|---|---|
+| `tipy-asm new FOLDER` | Create a project that builds straight away |
+| `tipy-asm build [SOURCE]` | Build `.8xp` programs and assets. Add `--watch` to rebuild on save, or `--keep-asm` to keep the assembly |
+| `tipy-asm check [SOURCE]` | Report errors on each target without writing files. `--target flash` checks the Flash App backend |
+| `tipy-asm compile [SOURCE]` | Write assembly without assembling it |
+| `tipy-asm flash-app [SOURCE]` | Build a CE Flash App and its installer |
+| `tipy-asm api [LIBRARY]` | List library methods and the targets that support them |
+| `tipy-asm doctor` | Show installed tools and the project's setup |
+| `tipy-asm clean` | Delete the project's build folder |
+| `tipy-asm convert-project PATH` | Convert a CEdev or ICE project into a TIpy-asm project |
+| `tipy-asm convbin`, `convimg`, `convfont`, `convert-image` | Convert data, images, and fonts by hand |
+
+With no source, commands use the project in the current folder or the nearest
+parent folder. Errors are printed as `FILE:LINE: error: MESSAGE` with the source
+line, in the original file, so editors can link to them.
+
+## Projects
+
+A project is configured under `[tool.tipy]` in its `pyproject.toml`:
+
+```toml
+[tool.tipy]
+name = "BOUNCE"          # calculator program name, 1-8 letters or digits
+main = "src/main.py"     # default
+target = "ce"            # classic, ce, or both; default ce
+bindir = "bin"           # default
+keep_asm = false
+
+[tool.tipy.toolchain]    # optional; the default is to search PATH
+ce_assembler = "tools/fasmg.exe"
+classic_assembler = "tools/spasm.exe"
+
+[tool.tipy.flash]        # used by `tipy-asm flash-app`
+project_dir = "flash"    # folder containing installer/makefile
+optimize = "speed"       # or size
+
+[[tool.tipy.assets]]     # converted into bindir by each build, when out of date
+source = "assets/hero.png"
+name = "HERO"            # AppVar name; the default comes from the file name
+kind = "sprite"          # sprite, image, font, or binary; guessed from the suffix
+```
+
+`from settings import SPEED` includes `settings.py` from the main file's folder,
+and `from game.player import move` includes `game/player.py`.
+
+Image assets need Pillow: `python -m pip install "tipy-asm[images]"`. Send the
+asset's `.8xv` to the calculator along with the program:
+
+```python
+from ti84 import sprite
+hero = sprite.load("HERO")     # 0 if the AppVar is missing
+sprite.draw(hero, x, y)
+```
+
+## Language on the assembly targets
+
+The Flash App backend supports more of Python. The assembly targets support:
+
+- Functions with parameters, defaults, keyword arguments, return values, and
+  `global`. Recursion is rejected, because function variables are static.
+- `if`/`elif`/`else`, `while`, `for ... in range()` with runtime bounds, `break`,
+  `continue`, and `exit()`.
+- `+ - * // % << >> & | ^ ~`, comparisons, `and`, `or`, `not`, and `a if c else b`.
+  Integers are signed, 24-bit on CE and 16-bit on classic, and wrap on overflow.
+  `x // 0` is 0 and `x % 0` is `x`, because a calculator program cannot raise.
+- Module-level arrays: `TABLE = (1, 2, 3)` is read-only, and `scores = [0] * 10`
+  is writable. Runtime indexes are not bounds-checked.
+- `print()` of string literals and integers, and `abs`, `min`, and `max`.
+
+Strings exist only as literals, and there are no floats, classes, or lists of
+lists.
+
+## Libraries
+
+Import them with `from ti84 import graphics, keyboard`. Run `tipy-asm api NAME`
+for each method's signature and targets. The `ti84` package also has stubs, so
+VS Code/Pylance can complete these names.
+
+| Library | Provides |
+|---|---|
+| `graphics` | Pixels, lines, rectangles, circles, triangles, text, and sprites. Coordinates and colors can be runtime values, and are clipped to the screen |
+| `keyboard` | `read()` waits for a key, `get()` returns at once, `is_down(key)` tests a held key |
+| `math` | `abs min max clamp sign sqrt pow sin cos`, all integer; `sin` and `cos` take degrees and scale by 256 |
+| `random` | `seed randrange randint` |
+| `storage`, `file` | AppVar bytes that persist between runs |
+| `sprite` | AppVar sprites from project assets (CE only) |
+| `color` | Color constants and conversions. On classic, colors are 0 (white) or 1 (black) |
+| `graph` | The Flash App's graph screen (Flash App only) |
+
+Not implemented: FontLibC fonts (`ti84.font` has only color constants, so use
+`graphics.text()`), and scaled or rotated sprites. Calling these gives an error
+rather than doing nothing. Text with runtime coordinates and `text_int()` need
+the CE target. A failed `storage` read or write, such as a missing AppVar or a
+bad offset, ends the program.
+
+## Converting CEdev and ICE projects
 
 ```powershell
-tipy-asm compile examples\library_test.py --target ce
+tipy-asm convert-project path\to\project -o converted
 ```
 
-Build a calculator program (`--target classic`, `ce`, or `both`):
+This writes a normal project, then compiles it and tells you whether it worked.
+Code with no TIpy equivalent, such as pointers, structs, and `switch`, becomes a
+`# TODO(convert)` comment and is listed in `CONVERSION_NOTES.md`. CEdev palette
+indices are not RGB565 colors, so check the colors of a converted program.
+
+## Tests
 
 ```powershell
-tipy-asm build examples\library_test.py --target ce --name LIBTEST
+python -m unittest discover -s tests
 ```
 
-Convert a PNG or another Pillow-supported image into TIpy sprite source (install
-the optional Pillow dependency with `python -m pip install 'tipy-asm[images]'`):
-
-```powershell
-tipy-asm convert-image assets\logo.png --fit ce --x 40 --y 30 -o logo_sprite.py
-tipy-asm build logo_sprite.py --target ce --name LOGO
-```
-
-`graphics.sprite(pixel_rows, x, y)` draws an RGB565 sprite. Use `None` for
-transparent pixels; `convert-image` preserves transparency and converts the
-opaque pixels to RGB565. Sprite positions can be integer expressions or
-variables, so a program can move the same sprite between frames. CE sprites
-are stored as compact pixel data and drawn by a generated runtime loop. Both
-assembly targets clip partially off-screen sprites; runtime-positioned sprites
-must not exceed the target screen dimensions.
-
-Build a CE Flash App and installer:
-
-```powershell
-tipy-asm flash-app examples\flash_libraries_demo.py --project-dir path\to\installer-project
-```
-
-Run `tipy-asm --help` or `tipy-asm <command> --help` to see all options.
-
-Run the compiler regression suite from a source checkout:
-
-```powershell
-python -m unittest discover -s tests -v
-```
+`tests/asm_sim.py` runs generated assembly on a model of both CPUs, with the OS
+stubbed, and compares results with CPython. It is not an emulator, so test on
+CEmu or a calculator as well.
 
 ## Repository layout
 
-- `ti84asm/` contains the parser, code generators, command-line interface, and
-  build drivers.
-- `ti84libs/` contains calculator-specific built-in libraries.
-- `examples/` contains source programs demonstrating the supported targets.
-- `docs/` contains language and design reference material.
+- `ti84asm/` contains the compiler, runtime helpers, CLI, and build drivers.
+- `ti84asm/toolchain/` contains the bundled [fasmg](https://flatassembler.net/) (see
+  `fasmg-license.txt`) and CE includes from
+  [CE-Programming/asm-docs](https://github.com/CE-Programming/asm-docs).
+- `ti84libs/` contains the built-in libraries; `ti84libs/api.py` is the table of
+  public methods.
+- `ti84/` contains the editor stubs.
+- `examples/` contains example projects.
+- `docs/` contains design reference material.
 
 This fork retains the upstream [MIT license](LICENSE).

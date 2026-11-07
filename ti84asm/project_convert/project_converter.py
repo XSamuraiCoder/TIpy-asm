@@ -1,367 +1,247 @@
-"""Full project converter for CEdev and ICE projects.
+"""Convert a whole CEdev or ICE project into a TIpy-asm project.
 
-This module provides tools to convert entire CEdev C projects or ICE projects
-into TIpy-asm Python format, including:
-- Main source files (.c or .ice)
-- Header files (.h)
-- Asset files (images, fonts, binary data)
-- Makefile/builder configuration
+The output is a normal project: ``src/*.py``, assets declared in pyproject.toml,
+and CONVERSION_NOTES.md listing anything that needs a person's attention. The
+converter then compiles its own output, so it reports whether the result builds.
 
-Usage:
-    from ti84asm.project_convert import convert_cedev_project, convert_ice_project
-    
-    # Convert a CEdev project folder
-    convert_cedev_project("path/to/cedev_project", "output_folder")
-    
-    # Convert an ICE project file
-    convert_ice_project("path/to/project.ice", "output_folder")
-    
-    # Or use the command-line tool:
-    # tipy-asm convert-project --type cedev path/to/project -o output_folder
+Usage::
+
+    tipy-asm convert-project path/to/project -o output_folder
 """
 
 from __future__ import annotations
 
-import os
 import re
+import shutil
 from pathlib import Path
 
-from .cedev_convert import cedev_to_python
-from .ice_convert import ice_to_python
+from ..errors import CompileError
+from .c_like import Conversion
+from .cedev_convert import convert_cedev
+from .ice_convert import convert_ice
+
+_SKIPPED_FOLDERS = {"bin", "obj", ".git", "__pycache__"}
+_IMAGE_SUFFIXES = (".png", ".bmp", ".jpg", ".jpeg", ".gif")
+_ASSET_SUFFIXES = (*_IMAGE_SUFFIXES, ".ttf", ".otf", ".fnt", ".bin")
+_NOTES = "CONVERSION_NOTES.md"
 
 
-# File extensions for different project types
-CEDEV_C_EXTENSIONS = (".c", ".h")
-ICE_EXTENSIONS = (".ice",)
+def detect_type(project: Path) -> str:
+    """Tell CEdev and ICE projects apart by the source files they contain."""
+    if project.is_file():
+        return "ice" if project.suffix.lower() == ".ice" else "cedev"
+    return "ice" if any(_project_files(project, (".ice",))) else "cedev"
 
-# Known asset file types
-ASSET_EXTENSIONS = (
-    ".png", ".bmp", ".jpg", ".jpeg",  # Images
-    ".ttf", ".otf", ".fnt",            # Fonts
-    ".bin", ".csv",                     # Binary data
-)
+
+def _project_files(root: Path, suffixes: tuple[str, ...]) -> list[Path]:
+    found = [path for path in root.rglob("*")
+             if path.is_file() and path.suffix.lower() in suffixes
+             and not _SKIPPED_FOLDERS.intersection(path.relative_to(root).parts[:-1])]
+    return sorted(found)
+
+
+def _program_name(project: Path) -> str:
+    """Use the makefile's NAME when there is one, otherwise the folder's name."""
+    root = project if project.is_dir() else project.parent
+    for candidate in ("makefile", "Makefile"):
+        makefile = root / candidate
+        if makefile.is_file():
+            match = re.search(r"(?m)^\s*NAME\s*[:?]?=\s*(\S+)", makefile.read_text(encoding="utf-8", errors="replace"))
+            if match:
+                name = re.sub(r"[^A-Za-z0-9]", "", match.group(1))[:8].upper()
+                if name:
+                    return name
+    stem = project.stem if project.is_file() else project.name
+    return re.sub(r"[^A-Za-z0-9]", "", stem)[:8].upper() or "PROGRAM"
+
+
+def _python_text(conversion: Conversion, imports: list[str], defines: list[tuple[str, str]], entry: bool) -> str:
+    lines = [f"from {module} import *" for module in imports]
+    head = conversion.code
+    from_ti84 = ""
+    if head.startswith("from ti84 import"):
+        from_ti84, head = head.split("\n", 1)
+        head = head.lstrip("\n")
+    parts = [line for line in (from_ti84, *lines) if line]
+    text = "\n".join(parts) + ("\n\n" if parts else "")
+    if defines:
+        text += "\n".join(f"{name} = {_define_value(value)}" for name, value in defines) + "\n\n"
+    text += head
+    if entry:
+        text += "\n\nmain()\n"
+    return text
+
+
+def _define_value(value: str) -> str:
+    cleaned = value.split("//")[0].split("/*")[0].strip()
+    return re.sub(r"(?<=\d)[uUlL]+\b", "", cleaned) or "0"
 
 
 class ProjectConverter:
-    """Converts an entire CEdev or ICE project to TIpy-asm Python."""
-    
-    def __init__(self, project_path: Path, output_path: Path, project_type: str = "cedev"):
-        """
-        Initialize the converter.
-        
-        Args:
-            project_path: Path to the project folder or file
-            output_path: Path to save converted files
-            project_type: "cedev" or "ice"
-        """
+    """Converts an entire CEdev or ICE project to a TIpy-asm project."""
+
+    def __init__(self, project_path: Path, output_path: Path, project_type: str = "auto"):
         self.project_path = Path(project_path)
         self.output_path = Path(output_path)
-        self.project_type = project_type
-        self.converted_files = []
-        
         if not self.project_path.exists():
-            raise FileNotFoundError(f"Project path not found: {project_path}")
-        
-        self.output_path.mkdir(parents=True, exist_ok=True)
-    
-    def convert(self) -> list[Path]:
-        """Convert the entire project."""
-        if self.project_type == "cedev":
-            return self._convert_cedev_project()
-        elif self.project_type == "ice":
-            return self._convert_ice_project()
-        else:
-            raise ValueError(f"Unknown project type: {self.project_type}")
-    
-    def _convert_cedev_project(self) -> list[Path]:
-        """Convert a CEdev C project."""
-        # Find all C and H files
-        source_files = []
-        for ext in CEDEV_C_EXTENSIONS:
-            source_files.extend(self.project_path.rglob(f"*{ext}"))
-        
-        # Also check for a makefile
-        makefile = self.project_path / "makefile"
-        if makefile.exists():
-            # Parse makefile to get source files
-            makefile_sources = self._parse_makefile(makefile)
-            source_files = [self.project_path / src for src in makefile_sources if (self.project_path / src).exists()]
-        
-        # Convert each source file
-        for src_file in source_files:
-            if src_file.suffix.lower() == ".h":
-                # Header files - convert to Python with type hints
-                self._convert_header_file(src_file)
-            else:
-                # C source files - convert to Python
-                self._convert_source_file(src_file)
-        
-        # Copy or convert assets
-        self._convert_assets()
-        
-        # Create a main.py if we converted multiple files
-        if len(source_files) > 1:
-            self._create_main_python()
-        
-        # Create a pyproject.toml
-        self._create_pyproject_toml()
-        
-        return self.converted_files
-    
-    def _convert_ice_project(self) -> list[Path]:
-        """Convert an ICE project."""
-        # ICE projects are typically single files
-        if self.project_path.is_file():
-            return self._convert_single_ice_file(self.project_path)
-        else:
-            # Find all ICE files
-            ice_files = list(self.project_path.rglob("*" + ICE_EXTENSIONS[0]))
-            for ice_file in ice_files:
-                self._convert_single_ice_file(ice_file)
-            return self.converted_files
-    
-    def _convert_single_ice_file(self, ice_file: Path) -> list[Path]:
-        """Convert a single ICE file."""
-        output_file = self.output_path / (ice_file.stem + ".py")
-        content = ice_file.read_text(encoding="utf-8")
-        python_code = ice_to_python(content)
-        output_file.write_text(python_code, encoding="utf-8")
-        self.converted_files.append(output_file)
-        return [output_file]
-    
-    def _convert_source_file(self, c_file: Path) -> None:
-        """Convert a C source file."""
-        relative_path = c_file.relative_to(self.project_path)
-        output_file = self.output_path / (relative_path.with_suffix(".py"))
-        output_file.parent.mkdir(parents=True, exist_ok=True)
-        
-        content = c_file.read_text(encoding="utf-8")
-        python_code = cedev_to_python(content)
-        
-        # Clean up the output
-        python_code = self._clean_converted_code(python_code)
-        
-        output_file.write_text(python_code, encoding="utf-8")
-        self.converted_files.append(output_file)
-    
-    def _convert_header_file(self, h_file: Path) -> None:
-        """Convert a C header file to Python with type hints."""
-        relative_path = h_file.relative_to(self.project_path)
-        output_file = self.output_path / (relative_path.with_suffix(".pyi"))
-        output_file.parent.mkdir(parents=True, exist_ok=True)
-        
-        content = h_file.read_text(encoding="utf-8")
-        
-        # Convert header file (simplified - just extract function declarations)
-        python_code = self._convert_header_to_pyi(content)
-        
-        output_file.write_text(python_code, encoding="utf-8")
-        self.converted_files.append(output_file)
-    
-    def _parse_makefile(self, makefile: Path) -> list[str]:
-        """Parse a CEdev makefile to find source files."""
-        sources = []
-        with open(makefile, "r") as f:
-            for line in f:
-                line = line.strip()
-                # Look for SRCS variable
-                if line.startswith("SRCS") or "SRCS" in line:
-                    # Extract file list
-                    match = re.search(r"SRCS\s*[+=]\s*(.+)", line)
-                    if match:
-                        files = match.group(1).split()
-                        for file_pattern in files:
-                            # Handle wildcard patterns
-                            if "wildcard" in file_pattern or "*" in file_pattern:
-                                # Extract the pattern (e.g., "src/*.c" or "$(wildcard src/*.c)")
-                                pattern = file_pattern.replace("$(wildcard ", "").replace(")", "")
-                                # Find files matching the pattern
-                                import glob
-                                matched_files = glob.glob(str(self.project_path / pattern))
-                                sources.extend([Path(f).relative_to(self.project_path).as_posix() for f in matched_files])
-                            else:
-                                sources.append(file_pattern)
-                # Look for source files in wildcard patterns
-                elif "*" in line and ".c" in line:
-                    # Try to extract pattern
-                    match = re.search(r'"?\$?\(?wildcard\s+([^)]+)\)?"?', line)
-                    if not match:
-                        match = re.search(r'"?([^*"]*\*[^""]*)"?', line)
-                    if match:
-                        pattern = match.group(1).replace("wildcard ", "")
-                        import glob
-                        matched_files = glob.glob(str(self.project_path / pattern))
-                        sources.extend([Path(f).relative_to(self.project_path).as_posix() for f in matched_files])
-        return sources
-    
-    def _convert_header_to_pyi(self, content: str) -> str:
-        """Convert a C header file to Python type stub."""
-        lines = []
-        in_function_decl = False
-        
-        for line in content.split("\n"):
-            line = line.strip()
-            
-            # Skip comments and preprocessor directives
-            if line.startswith("//") or line.startswith("/*") or line.startswith("#"):
-                continue
-            if "*/" in line:
-                continue
-            
-            # Function declarations
-            if line.endswith(";") and "(" in line:
-                # Convert: return_type func_name(params); -> def func_name(params) -> return_type: ...
-                match = re.match(r"(\w+)\s+(\w+)\(([^)]*)\)\s*;", line)
-                if match:
-                    return_type, func_name, params = match.groups()
-                    py_return = "None" if return_type == "void" else return_type.lower()
-                    lines.append(f"def {func_name}({params}) -> {py_return}: ...")
-            
-            # Constants
-            elif line.startswith("#define"):
-                match = re.match(r"#define\s+(\w+)\s+(\w+)", line)
-                if match:
-                    const_name, const_value = match.groups()
-                    lines.append(f"{const_name}: int = {const_value}")
-            
-            # Type definitions
-            elif line.startswith("typedef"):
-                match = re.match(r"typedef\s+\w+\s+(\w+)\s*;", line)
-                if match:
-                    type_name = match.group(1)
-                    lines.append(f"class {type_name}: ...")
-        
-        return "\n".join(lines)
-    
-    def _convert_assets(self) -> None:
-        """Convert asset files (images, fonts, binary data)."""
-        for asset_file in self.project_path.rglob("*"):
-            if asset_file.suffix.lower() in ASSET_EXTENSIONS:
-                relative_path = asset_file.relative_to(self.project_path)
-                output_path = self.output_path / "assets" / relative_path.name
-                output_path.parent.mkdir(parents=True, exist_ok=True)
-                
-                # Copy the asset file
-                import shutil
-                shutil.copy2(asset_file, output_path)
-                self.converted_files.append(output_path)
-    
-    def _create_main_python(self) -> None:
-        """Create a main.py file that imports and runs the converted code."""
-        main_file = self.output_path / "main.py"
-        
-        # Find the main source file
-        main_source = None
-        for f in self.converted_files:
-            if f.suffix == ".py" and "main" in f.name:
-                main_source = f
-                break
-        
-        if main_source:
-            # Import and call the main function
-            module_name = main_source.stem
-            main_file.write_text(f"from {module_name} import main\n\nmain()\n", encoding="utf-8")
-            self.converted_files.append(main_file)
-        else:
-            # Just create an empty main
-            main_file.write_text("# Main entry point\n", encoding="utf-8")
-            self.converted_files.append(main_file)
-    
-    def _create_pyproject_toml(self) -> None:
-        """Create a pyproject.toml for the converted project."""
-        toml_file = self.output_path / "pyproject.toml"
-        
-        # Find the project name
-        project_name = self.project_path.name.replace("-", "_").replace(" ", "_")
-        
-        content = f"""[tool.tipy]
-name = "{project_name}"
-target = "ce"
+            raise CompileError(f"project not found: {project_path}")
+        self.project_type = detect_type(self.project_path) if project_type == "auto" else project_type
+        self.converted_files: list[Path] = []
+        self.warnings: list[str] = []
+        self.root = self.project_path if self.project_path.is_dir() else self.project_path.parent
 
-[build-system]
-requires = ["setuptools>=68"]
-build-backend = "setuptools.build_meta"
-"""
-        toml_file.write_text(content, encoding="utf-8")
-        self.converted_files.append(toml_file)
-    
-    def _clean_converted_code(self, code: str) -> str:
-        """Clean up converted code."""
-        # Remove duplicate imports
-        lines = code.split("\n")
-        seen_imports = set()
-        cleaned_lines = []
-        
-        for line in lines:
-            if line.startswith("from ti84 import"):
-                if line not in seen_imports:
-                    seen_imports.add(line)
-                    cleaned_lines.append(line)
+    def convert(self) -> list[Path]:
+        if self.output_path.resolve() == self.root.resolve():
+            raise CompileError("choose an output folder other than the project being converted")
+        sources = self._sources()
+        if not sources:
+            kind = ".ice" if self.project_type == "ice" else ".c"
+            raise CompileError(f"no {kind} source files found in {self.project_path}")
+        self.output_path.mkdir(parents=True, exist_ok=True)
+        modules = self._translate_all(sources)
+        main_module = next((name for name, item in modules.items() if item["conversion"].uses_main), None)
+        if main_module is None:
+            main_module = next(iter(modules))
+            self.warnings.append(f"no main() function found; using {main_module}.py as the program entry")
+        for name, item in modules.items():
+            self._write_module(name, item, modules, name == main_module)
+        assets = self._copy_assets()
+        self._write_pyproject(main_module, assets)
+        self._write_notes()
+        return self.converted_files
+
+    def _sources(self) -> list[Path]:
+        suffix = (".ice",) if self.project_type == "ice" else (".c",)
+        if self.project_path.is_file():
+            return [self.project_path]
+        return _project_files(self.project_path, suffix)
+
+    def _translate_all(self, sources: list[Path]) -> dict[str, dict]:
+        translate = convert_ice if self.project_type == "ice" else convert_cedev
+        modules: dict[str, dict] = {}
+        for source in sources:
+            name = re.sub(r"\W", "_", source.stem)
+            if name in modules:
+                raise CompileError(f"two source files convert to {name}.py; rename one of them")
+            conversion = translate(source)
+            self.warnings.extend(f"{source.relative_to(self.root)}: {warning}" for warning in conversion.warnings)
+            modules[name] = {"source": source, "conversion": conversion}
+        if self.project_type != "ice":
+            for header in _project_files(self.root, (".h",)):
+                name = re.sub(r"\W", "_", header.stem)
+                conversion = translate(header)
+                self.warnings.extend(f"{header.relative_to(self.root)}: {warning}" for warning in conversion.warnings)
+                if name in modules:
+                    # A header's constants are placed at the top of its .c file's module.
+                    modules[name]["conversion"].defines[:0] = conversion.defines
+                    modules[name]["conversion"].includes.extend(conversion.includes)
+                elif conversion.defines:
+                    modules[name] = {"source": header, "conversion": conversion}
+        return modules
+
+    def _write_module(self, name: str, item: dict, modules: dict[str, dict], entry: bool) -> None:
+        conversion: Conversion = item["conversion"]
+        imports = []
+        for include in conversion.includes:
+            module = re.sub(r"\W", "_", Path(include).stem)
+            if module in modules and module != name and module not in imports:
+                imports.append(module)
+        output = self.output_path / "src" / f"{name}.py"
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(_python_text(conversion, imports, conversion.defines, entry and conversion.uses_main), encoding="utf-8")
+        self.converted_files.append(output)
+
+    def _copy_assets(self) -> list[str]:
+        declared = []
+        if self.project_path.is_file():
+            return declared
+        for asset in _project_files(self.project_path, _ASSET_SUFFIXES):
+            output = self.output_path / "assets" / asset.name
+            output.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(asset, output)
+            self.converted_files.append(output)
+            name = re.sub(r"[^A-Za-z0-9]", "", asset.stem)[:8].upper()
+            if re.fullmatch(r"[A-Z][A-Z0-9]*", name) and name not in {entry.split('"')[3] for entry in declared}:
+                kind = ("sprite" if asset.suffix.lower() in _IMAGE_SUFFIXES
+                        else "font" if asset.suffix.lower() in (".fnt", ".ttf", ".otf") else "binary")
+                size = "\nsize = 16" if asset.suffix.lower() in (".ttf", ".otf") else ""
+                declared.append(f'[[tool.tipy.assets]]\nsource = "assets/{asset.name}"\nname = "{name}"\nkind = "{kind}"{size}\n')
             else:
-                cleaned_lines.append(line)
-        
-        return "\n".join(cleaned_lines)
+                self.warnings.append(f"{asset.name}: copied, but its name cannot be an AppVar name; declare it by hand")
+        return declared
+
+    def _write_pyproject(self, main_module: str, assets: list[str]) -> None:
+        output = self.output_path / "pyproject.toml"
+        text = (f'[tool.tipy]\nname = "{_program_name(self.project_path)}"\n'
+                f'description = "Converted from {self.project_path.name}"\n'
+                f'main = "src/{main_module}.py"\ntarget = "ce"\nbindir = "bin"\n')
+        if assets:
+            text += "\n" + "\n".join(assets)
+        output.write_text(text, encoding="utf-8")
+        self.converted_files.append(output)
+
+    def _write_notes(self) -> None:
+        output = self.output_path / _NOTES
+        lines = [f"# Conversion notes for {self.project_path.name}", ""]
+        if self.warnings:
+            lines += ["Search the source for `TODO(convert)` to find what was left unconverted.", ""]
+            lines += [f"- {warning}" for warning in self.warnings]
+        else:
+            lines.append("Everything converted without warnings.")
+        lines += ["", "CEdev palette indices are not RGB565 colors, so check that colors from `gfx_SetColor()` look right."]
+        output.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        self.converted_files.append(output)
 
 
 def convert_cedev_project(project_path: str | Path, output_path: str | Path) -> list[Path]:
-    """Convert a CEdev project to TIpy-asm Python.
-    
-    Args:
-        project_path: Path to the CEdev project folder
-        output_path: Path to save the converted project
-        
-    Returns:
-        List of converted files
-    """
-    converter = ProjectConverter(project_path, output_path, "cedev")
-    return converter.convert()
+    """Convert a CEdev project; return the files written."""
+    return ProjectConverter(Path(project_path), Path(output_path), "cedev").convert()
 
 
 def convert_ice_project(project_path: str | Path, output_path: str | Path) -> list[Path]:
-    """Convert an ICE project to TIpy-asm Python.
-    
-    Args:
-        project_path: Path to the ICE project folder or file
-        output_path: Path to save the converted project
-        
-    Returns:
-        List of converted files
-    """
-    converter = ProjectConverter(project_path, output_path, "ice")
-    return converter.convert()
+    """Convert an ICE project folder or file; return the files written."""
+    return ProjectConverter(Path(project_path), Path(output_path), "ice").convert()
 
 
-def add_arguments(parser):
+def add_arguments(parser) -> None:
     """Add command-line arguments for convert-project."""
-    parser.add_argument("project", type=Path, help="Path to CEdev/ICE project folder or file")
-    parser.add_argument("-o", "--output", type=Path, help="Output folder (default: project_converted)")
-    parser.add_argument("--type", choices=["cedev", "ice"], default="cedev",
-                        help="Project type: cedev or ice (default: cedev)")
-    parser.add_argument("--verbose", "-v", action="store_true", help="Show detailed conversion info")
+    parser.add_argument("project", type=Path, help="CEdev or ICE project folder, or a single source file")
+    parser.add_argument("-o", "--output", type=Path, help="output folder (default: PROJECT_converted)")
+    parser.add_argument("--type", choices=["auto", "cedev", "ice"], default="auto",
+                        help="project type (default: detect from the source files)")
+    parser.add_argument("--verbose", "-v", action="store_true", help="list every file written and every warning")
 
 
-def run(args):
-    """Run the project conversion."""
-    import sys
-    
-    output_path = args.output or (args.project.parent / f"{args.project.name}_converted")
-    
+def run(args) -> int:
+    """Run the conversion, then compile the result so the outcome is known."""
+    from ..compiler import Compiler
+    from ..project import format_diagnostic, load_project, load_sources
+
+    project = args.project
+    stem = project.stem if project.is_file() else project.name
+    output = args.output or project.parent / f"{stem}_converted"
+    converter = ProjectConverter(project, output, args.type)
+    files = converter.convert()
+    print(f"Converted {project} ({converter.project_type}) to {output}: {len(files)} file(s)")
     if args.verbose:
-        print(f"Converting {args.project} to {output_path}")
-        print(f"Project type: {args.type}")
-    
+        for path in files:
+            print(f"  {path.relative_to(output)}")
+    warnings = converter.warnings
+    if warnings:
+        print(f"{len(warnings)} item(s) need attention; see {output / _NOTES}")
+        for warning in warnings if args.verbose else warnings[:5]:
+            print(f"  {warning}")
+        if not args.verbose and len(warnings) > 5:
+            print(f"  ...and {len(warnings) - 5} more")
+    config = load_project(output)
+    segments = []
     try:
-        if args.type == "cedev":
-            files = convert_cedev_project(args.project, output_path)
-        else:
-            files = convert_ice_project(args.project, output_path)
-        
-        if args.verbose:
-            print(f"Converted {len(files)} files:")
-            for f in files:
-                print(f"  - {f.relative_to(output_path)}")
-        
-        return files
-    except Exception as e:
-        print(f"Error: {e}", file=sys.stderr)
-        raise
+        source, segments = load_sources(config.main)
+        Compiler(config.name, "ce").compile(source)
+    except CompileError as exc:
+        print("The converted project does not compile yet:")
+        print(format_diagnostic(str(exc), segments))
+        print(f"Fix that, then run: tipy-asm build {output}")
+        return 1
+    print(f"The converted project compiles. Build it with: tipy-asm build {output}")
+    return 0

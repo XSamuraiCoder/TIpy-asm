@@ -1,5 +1,6 @@
 # Upstream compiler build output
 *.exe
+!ti84asm/toolchain/bin/fasmg.exe
 *.obj
 *.res
 CEdev/
@@ -19,9 +20,6 @@ dist/
 *.8xp
 *.8xv
 *.8ek
-
-# Local compiler example workspace
-/examples/
 
 # Editor and operating-system metadata
 .vscode/
