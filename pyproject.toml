@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "tipy-asm"
-version = "1.0.0"
+version = "1.0.1"
 description = "TIpy-asm: Python compiler for TI-84 Z80/eZ80 calculators"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -24,5 +24,5 @@ convfont = "ti84asm.convfont:run_with_args"
 packages = ["ti84asm", "ti84asm.project_convert", "ti84libs", "ti84"]
 
 [tool.setuptools.package-data]
-ti84asm = ["toolchain/bin/*", "toolchain/include/*", "toolchain/*.txt"]
+ti84asm = ["toolchain/bin/*", "toolchain/include/*", "toolchain/*.txt", "installer/*.py", "installer/*.asm"]
 ti84 = ["*.pyi", "py.typed"]

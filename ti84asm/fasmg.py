@@ -72,6 +72,18 @@ def ensure_fasmg() -> str:
                   "install fasmg on PATH, or pass --ce-assembler PATH")
 
 
+CLASSIC_ASSEMBLER_NAMES = ("spasm-ng", "spasm", "spasm64")
+
+
+def find_classic_assembler() -> str | None:
+    """Find SPASM-ng on PATH under any of the names its releases use."""
+    for name in CLASSIC_ASSEMBLER_NAMES:
+        found = shutil.which(name)
+        if found:
+            return found
+    return None
+
+
 def ensure_ce_includes() -> Path:
     """Return the folder holding the packaged CE includes in its ``include`` subfolder."""
     missing = [name for name in CE_INCLUDE_FILES if not (TOOLCHAIN / "include" / name).is_file()]

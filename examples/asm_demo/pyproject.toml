@@ -1,0 +1,5 @@
+[tool.tipy]
+name = "ASMDEMO"
+description = "Calling assembly routines from Python"
+main = "src/main.py"
+target = "both"

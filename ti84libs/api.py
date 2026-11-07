@@ -34,7 +34,7 @@ API: dict[str, dict[str, Method]] = {
     "graphics": {
         "begin": _m("begin()", "Prepare the screen for drawing.", "graphics.begin()"),
         "end": _m("end()", "Restore the OS screen state.", "graphics.end()"),
-        "clear": _m("clear()", "Clear the whole screen.", "graphics.clear()"),
+        "clear": _m("clear()", "Clear the whole screen to white, status bar included.", "graphics.clear()"),
         "fill_screen": _m("fill_screen(color=WHITE)", "Fill the whole screen with a color.",
                           "graphics.fill_screen(graphics.WHITE)"),
         "pixel": _m("pixel(x, y, color=BLACK)", "Set one pixel; off-screen runtime positions are clipped.",
@@ -60,7 +60,8 @@ API: dict[str, dict[str, Method]] = {
         "vert_line": _m("vert_line(x, y, length, color=BLACK)", "Draw a fast vertical line.",
                         "graphics.vert_line(x, y, 5, graphics.RED)"),
         "text": _m("text(string, x, y, color=BLACK, *, origin='top_left')",
-                   "Draw a literal string. Runtime coordinates need the CE target.", "graphics.text('HI', 1, 2)"),
+                   "Draw a string at pixel x, y. origin='center' centers it, and x, y then offset it. "
+                   "Runtime coordinates need the CE target.", "graphics.text('HI', 0, 0, origin='center')"),
         "text_int": _m("text_int(value, x, y, color=BLACK)", "Draw an integer, such as a score.",
                        "graphics.text_int(score, x, y)", (CE,), False, _TEXT_NOTE),
         "sprite": _m("sprite(pixels, x, y)", "Draw literal RGB565 rows; None is transparent.",

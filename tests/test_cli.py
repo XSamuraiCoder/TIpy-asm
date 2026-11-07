@@ -223,11 +223,14 @@ class ToolCommandTests(Workspace):
         self.assertEqual(caught.exception.code, 0)
         self.assertIn("tipy-asm", out.getvalue())
 
-    def test_flash_app_without_a_project_dir_says_how_to_set_it(self):
+    def test_flash_app_builds_in_the_project_folder_by_default(self):
         self.project()
-        code, _, err = run("flash-app")
-        self.assertEqual(code, 1)
-        self.assertIn("project_dir", err)
+        code, out, err = run("flash-app")
+        self.assertNotIn("project_dir", err)
+        if code == 0:
+            self.assertTrue((self.root / "python_port" / "bin" / "INSTALL.8xp").is_file(), out)
+        else:
+            self.assertIn("CEdev", err)     # only a missing toolchain may stop it
 
     def test_flash_settings_load(self):
         self.project('name = "G"\n\n[tool.tipy.flash]\nproject_dir = "flash"\noptimize = "size"')
@@ -320,6 +323,15 @@ class FlashBackendTests(Workspace):
         code = self.compile("N = 2\nSIZE = N + 1\na = [0] * SIZE\ndef f(i):\n    a[i] = 1\nf(0)\n")
         self.assertIn("ti84py_arr_0[3]", code)
 
+    def test_text_uses_pixels_and_can_be_centered(self):
+        code = self.compile('from ti84 import graphics\ngraphics.text("HI", 12, 16)\n'
+                            'graphics.text("MID", 0, 0, origin="center")\n')
+        self.assertIn("os_FontDrawText(s, (uint16_t)x, (uint8_t)y)", code)
+        self.assertRegex(code, r'"HI".*ti84py_gfx_text\(t\d+, t\d+, t\d+, 0\)')
+        self.assertRegex(code, r'"MID".*ti84py_gfx_text\(t\d+, t\d+, t\d+, 1\)')
+        with self.assertRaisesRegex(CompileError, "origin must be"):
+            self.compile('from ti84 import graphics\ngraphics.text("HI", 0, 0, origin="middle")\n')
+
     def test_reassigned_or_written_names_are_not_list_sizes(self):
         for source in ("n = 3\nn = 4\na = [0] * n\nb = a[0]\n",
                        "n = 3\ndef g():\n    global n\n    n = 4\ng()\na = [0] * n\nb = a[0]\n"):
@@ -353,6 +365,53 @@ class FlashBackendTests(Workspace):
     def test_example_game_checks_on_the_flash_backend(self):
         code, out, err = run("check", str(REPO / "examples/catch"), "--target", "flash")
         self.assertEqual(code, 0, out + err)
+
+
+def _cedev_make():
+    import shutil
+    try:
+        from ti84asm.cedev_config import get_version
+        get_version()
+    except CompileError:
+        return None
+    return shutil.which("make")
+
+
+@unittest.skipUnless(_cedev_make(), "CEdev is not installed")
+class FlashAppExampleTests(Workspace):
+    def test_example_builds_an_app_and_a_matching_installer(self):
+        import shutil
+
+        project = self.root / "flash_app"
+        shutil.copytree(REPO / "examples" / "flash_app", project, ignore=shutil.ignore_patterns("python_port"))
+        code, out, err = run("flash-app", "--project", str(project))
+        self.assertEqual(code, 0, out + err)
+        output = project / "python_port" / "bin"
+        appvar = (output / "HELLO.0.8xv").read_bytes()
+        # The installer looks for AppVars named after the app and reads the app's name from them.
+        self.assertEqual(appvar[0x3C:0x44].rstrip(b"\0"), b"HELLO0")
+        self.assertEqual(appvar[0x4A + 259:0x4A + 264], b"HELLO")
+        installer = (output / "INSTALL.8xp").read_bytes()
+        self.assertTrue(installer.startswith(b"**TI83F*"))
+        self.assertIn(b"TIpy-asm installer", installer)
+        self.assertIn(b"HELLO", installer)
+
+    def test_a_custom_installer_folder_is_still_used(self):
+        import shutil
+
+        project = self.root / "custom"
+        shutil.copytree(REPO / "examples" / "flash_app", project, ignore=shutil.ignore_patterns("python_port"))
+        installer = project / "installer"
+        installer.mkdir()
+        (installer / "makefile").write_text("NAME ?= MINE\nAPPVAR_PREFIX ?= ZZ\n"
+                                            "include $(shell cedev-config --makefile)\n", encoding="utf-8")
+        (installer / "src").mkdir()
+        (installer / "src" / "main.c").write_text("int main(void) { return 0; }\n", encoding="utf-8")
+        code, out, err = run("flash-app", "--project", str(project))
+        self.assertEqual(code, 0, out + err)
+        output = project / "python_port" / "bin"
+        self.assertTrue((output / "MINE.8xp").is_file())
+        self.assertEqual((output / "HELLO.0.8xv").read_bytes()[0x3C:0x44].rstrip(b"\0"), b"ZZ0")
 
 
 class ConverterTests(Workspace):

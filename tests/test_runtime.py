@@ -336,6 +336,15 @@ m = storage.exists("NOPE")
             self.assertEqual(sim.appvar("SAVE"), bytes([11, 0, 0, 44]))
             self.assertEqual([variable(sim, compiler, n) for n in "absem"], [11, 44, 4, 1, 0])
 
+    def test_tiny_appvars_are_created_safely(self):
+        for target in TARGETS:
+            for size in (1, 2, 3):
+                with self.subTest(target=target, size=size):
+                    source = f'from ti84 import storage\nstorage.create("TINY", {size})\nr = storage.read_byte("TINY", {size - 1})\n'
+                    sim, compiler = run_program(source, target)
+                    self.assertEqual(sim.appvar("TINY"), bytes(size))
+                    self.assertEqual(variable(sim, compiler, "r"), 0)
+
     def test_create_keeps_existing_data_and_delete_removes(self):
         source = 'from ti84 import storage\nstorage.create("SAVE", 2)\na = storage.read_byte("SAVE", 1)\nstorage.delete("SAVE")\nb = storage.exists("SAVE")\nstorage.delete("SAVE")\n'
         for target in TARGETS:

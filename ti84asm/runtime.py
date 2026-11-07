@@ -520,20 +520,27 @@ _rt_delay_loop:
 def _kbd_row(t: Target) -> str:
     # Return the raw row of key bits, 1 = held, for scan-code row _rt_a0 (0-6).
     if t.is_ce:
+        # As CEdev's keypadc kb_ScanGroup: with interrupts off, request one scan
+        # (mode 2), wait for the keypad to return to idle, then read the group.
+        # Leaving the keypad scanning continuously crashes the OS. Interrupts stay
+        # off, as with keypadc; program_exit turns them back on.
         return """
 _rt_kbd_row:
-    ld hl,$F50000
-    ld a,(hl)
-    or a,3
-    ld (hl),a
-    ld hl,(_rt_a0)
-    ld de,7
-    ex de,hl
-    or a
-    sbc hl,de
-    add hl,hl
-    ld de,$F50010
-    add hl,de
+    ld a,(_rt_a0)
+    ld c,a
+    ld a,7
+    sub a,c
+    add a,a
+    add a,$10
+    ld c,a
+    di
+    ld hl,$F50200
+    ld (hl),h
+    xor a,a
+_rt_kbd_wait:
+    cp a,(hl)
+    jr nz,_rt_kbd_wait
+    ld l,c
     ld a,(hl)
     ld hl,0
     ld l,a
@@ -551,6 +558,7 @@ _rt_kbd_mask:
 _rt_kbd_mask_test:
     djnz _rt_kbd_mask
     ld b,a
+    di
     ld a,255
     out (1),a
     ld a,b
@@ -558,6 +566,7 @@ _rt_kbd_mask_test:
     nop
     nop
     in a,(1)
+    ei
     cpl
     ld l,a
     ld h,0
@@ -574,11 +583,19 @@ _rt_find_var:
     call ti.Mov9ToOP1
     call ti.ChkFindSym
     ret c
-    ld a,b
-    ld (_rt_var_archived),a
+    ; Archived data lives below RAM ($D00000). Check the address, as Cesium and the
+    ; app_tools installer do; B is not a reliable archive flag on the CE.
+    ld (_rt_var_found),de
     ex de,hl
-    or a
-    ret z
+    ld a,(_rt_var_found + 2)
+    cp a,$D0
+    jr c,_rt_find_var_archived
+    xor a,a
+    ld (_rt_var_archived),a
+    ret
+_rt_find_var_archived:
+    ld a,1
+    ld (_rt_var_archived),a
     ld de,9
     add hl,de
     ld a,(hl)
@@ -586,7 +603,7 @@ _rt_find_var:
     ld e,a
     add hl,de
     inc hl
-    or a
+    or a,a
     ret
 """
     return """
@@ -671,8 +688,15 @@ _rt_var_create:
     inc hl
     inc hl
     ld bc,(_rt_a1)
-    xor a
-    {rom("MemSet")}
+    ; Zero the data with a loop. The OS's MemSet runs LDIR on count - 1, so a
+    ; 1-byte AppVar would make it copy 16 MB and wipe RAM.
+_rt_var_create_zero:
+    ld (hl),0
+    inc hl
+    dec bc
+    ld a,b
+    or a,c
+    jr nz,_rt_var_create_zero
     ret
 """
 
@@ -753,7 +777,7 @@ RAW: dict[str, Raw] = {
     "_rt_peek16": Raw(1, _peek16),
     "_rt_delay": Raw(1, _delay),
     "_rt_kbd_row": Raw(1, _kbd_row),
-    "_rt_find_var": Raw(0, _find_var, (), ("_rt_var_archived",)),
+    "_rt_find_var": Raw(0, _find_var, (), ("_rt_var_archived", "_rt_var_found")),
     "_rt_var_address": Raw(2, _var_address, ("_rt_find_var",)),
     "_rt_var_read": Raw(2, _var_read, ("_rt_var_address",)),
     "_rt_var_write": Raw(3, _var_write, ("_rt_var_address",)),

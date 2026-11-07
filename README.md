@@ -31,7 +31,7 @@ command alias `ti84py`.
 - **Classic TI-83+/TI-84 Plus:** Z80 assembly, or a `.8xp` program built with
   SPASM-ng, which you install yourself.
 - **TI-84 Plus CE Flash App:** translated to C, then built and packaged with
-  CEdev and an installer project that you provide.
+  CEdev, with an installer that `flash-app` builds for you. See `examples/flash_app`.
 
 ## Commands
 
@@ -70,7 +70,7 @@ ce_assembler = "tools/fasmg.exe"
 classic_assembler = "tools/spasm.exe"
 
 [tool.tipy.flash]        # used by `tipy-asm flash-app`
-project_dir = "flash"    # folder containing installer/makefile
+project_dir = "flash"    # where to build; default: the project folder
 optimize = "speed"       # or size
 
 [[tool.tipy.assets]]     # converted into bindir by each build, when out of date
@@ -108,6 +108,50 @@ The Flash App backend supports more of Python. The assembly targets support:
 
 Strings exist only as literals, and there are no floats, classes, or lists of
 lists.
+
+## Assembly files
+
+For speed, or hardware access, write a routine in assembly and import it like a
+function. Put `fastmath.asm` (or `fastmath.s`) next to your Python file:
+
+```asm
+; tipy: def add3(a, b, c)
+add3:
+    add hl,de
+    add hl,bc
+    ret
+```
+
+```python
+from fastmath import add3
+total = add3(1, 2, 3)
+```
+
+- Each `; tipy: def name(...)` line declares a routine that Python can call.
+- Up to three arguments arrive in `HL`, `DE`, and `BC`, and the routine returns its
+  result in `HL`. It must preserve `IY` and return with the stack as it found it.
+- CE files use fasmg syntax, and classic files use SPASM syntax. When the two differ,
+  write `fastmath.ce.asm` and `fastmath.classic.asm`; these win over `fastmath.asm`.
+- Do not include `ti83plus.inc` or the CE includes; the program already has them.
+- Assembly files work on the CE and classic targets, not in Flash Apps.
+
+`examples/asm_demo` shows one file shared by both targets and a routine written
+separately for each.
+
+## Flash Apps and the installer
+
+The CE OS only accepts apps signed by TI, so `tipy-asm flash-app` builds the app as
+AppVars plus an installer program, `INSTALL.8xp`. The installer is written in TIpy's
+own Python, with the flash routines from
+[CE-Programming/app_tools](https://github.com/CE-Programming/app_tools) in assembly.
+
+- **Install:** send `INSTALL.8xp` and the app's `.8xv` files, then run `INSTALL`.
+- **Delete:** run `INSTALL` again. When the app is installed, it offers to delete it.
+- **Your own installer:** a project with `installer/makefile` keeps using that instead.
+
+The AppVars are named after the app, such as `HELLO0`, so two apps' installers do not
+pick up each other's files. The installer writes to flash memory: back up first, and
+do not interrupt it.
 
 ## Libraries
 

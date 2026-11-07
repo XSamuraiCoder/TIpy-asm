@@ -826,8 +826,15 @@ def emit_call(compiler, node: ast.Call) -> None:
         if compiler.target == "ce":
             if method == "begin":
                 compiler.emit("    call ti.RunIndicOff")
+                compiler.emit("    ld a,1")
+                compiler.emit("    ld (_rt_screen_used),a")
             else:
+                # Back to the home screen, so later print() output is visible and kept.
+                compiler.emit("    call ti.ClrScrn")
+                compiler.emit("    call ti.HomeUp")
                 compiler.emit("    call ti.DrawStatusBar")
+                compiler.emit("    xor a,a")
+                compiler.emit("    ld (_rt_screen_used),a")
                 compiler.emit("    ei")
     elif method == "clear":
         if compiler.target == "classic":

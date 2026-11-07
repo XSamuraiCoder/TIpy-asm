@@ -18,7 +18,8 @@ from .cedev_config import get_version as cedev_version
 from .cedev_config import run as cedev_config_run
 from .compiler import Compiler
 from .errors import CompileError
-from .fasmg import bundled_fasmg, ensure_ce_includes, ensure_classic_include_directory, ensure_fasmg
+from .fasmg import (bundled_fasmg, ensure_ce_includes, ensure_classic_include_directory, ensure_fasmg,
+                    find_classic_assembler)
 from .image import convert_image
 from .project import (ProjectConfig, Segment, build_assets, clean_project, format_diagnostic, load_project, load_sources,
                       new_project)
@@ -52,7 +53,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     build = commands.add_parser("build", help="assemble source into calculator .8xp programs and build assets")
     _source_options(build, ".8xp")
-    build.add_argument("--classic-assembler", help="path to SPASM-ng (default: spasm-ng or spasm on PATH)")
+    build.add_argument("--classic-assembler", help="path to SPASM-ng (default: spasm-ng, spasm, or spasm64 on PATH)")
     build.add_argument("--ce-assembler", help="path to fasmg (default: fasmg on PATH)")
     build.add_argument("--keep-asm", action="store_true", help="also write the generated assembly next to the program")
     build.add_argument("--force", action="store_true", help="rebuild assets even if they are up to date")
@@ -71,7 +72,8 @@ def build_parser() -> argparse.ArgumentParser:
     flash.add_argument("source", type=Path, nargs="?", help="input .py file (default: the project's main file)")
     flash.add_argument("--project", type=Path, metavar="DIR", help="project folder containing pyproject.toml")
     flash.add_argument("--project-dir", type=Path,
-                       help="folder containing installer/makefile (default: [tool.tipy.flash] project_dir)")
+                       help="folder to build in, which may hold a custom installer/makefile "
+                            "(default: [tool.tipy.flash] project_dir, else the project folder)")
     flash.add_argument("--name", help="Flash App name (up to 8 characters)")
     flash.add_argument("--appvar-prefix", help="override the installer's payload AppVar prefix (1-6 letters/digits)")
     flash.add_argument("--installer-name", help="override the installer's calculator program name")
@@ -172,9 +174,10 @@ def _output_path(job: BuildJob, target: str, suffix: str) -> Path:
 def _find_assembler(target: str, explicit: str | None) -> str:
     if target == "ce":
         return explicit or ensure_fasmg()
-    assembler = explicit or shutil.which("spasm-ng") or shutil.which("spasm")
+    assembler = explicit or find_classic_assembler()
     if not assembler:
-        raise CompileError("SPASM-ng (or spasm) assembler not found; install it, or pass --classic-assembler PATH. "
+        raise CompileError("SPASM-ng assembler not found; put spasm-ng, spasm, or spasm64 on PATH, "
+                           "set classic_assembler under [tool.tipy.toolchain], or pass --classic-assembler PATH. "
                            "Run 'tipy-asm doctor' to check your setup, or use --target ce")
     return assembler
 
@@ -215,7 +218,7 @@ def _targets(target: str) -> tuple[str, ...]:
 
 
 def _compile_job(job: BuildJob, target: str, source: str) -> tuple[str, str]:
-    compiler = Compiler(job.name or job.source.stem, target)
+    compiler = Compiler(job.name or job.source.stem, target, source_dir=job.source.parent)
     return compiler.compile(source), compiler.program
 
 
@@ -290,7 +293,7 @@ def _run_check(args: argparse.Namespace) -> int:
                 from .cgen import FlashAppCompiler
                 FlashAppCompiler(re.sub(r"[^A-Za-z0-9_]", "", name)[:8] or "APP").compile(source)
             else:
-                Compiler(name, target).compile(source)
+                Compiler(name, target, source_dir=job.source.parent).compile(source)
             print(f"{target}: ok")
         except CompileError as exc:
             failures += 1
@@ -309,7 +312,7 @@ def _run_flash(args: argparse.Namespace) -> tuple[list[Path], list[Segment]]:
     flash = project.flash if project else None
     project_dir = args.project_dir or (flash.project_dir if flash else None)
     if project_dir is None:
-        raise CompileError("set project_dir under [tool.tipy.flash], or pass --project-dir with a folder containing installer/makefile")
+        project_dir = project.root if project else source_path.parent
     app_name = args.name or (project.name if project else source_path.stem)
     if not app_name.isascii() or not re.fullmatch(r"[A-Za-z0-9_]{1,8}", app_name):
         raise CompileError("Flash App name must be 1-8 ASCII letters, digits, or underscores")
@@ -344,7 +347,7 @@ def _run_doctor(args: argparse.Namespace) -> int:
     origin = "bundled" if bundled else "on PATH"
     line("CE assembler (fasmg)", bool(fasmg),
          f"{fasmg} ({origin})" if fasmg else "no bundled build for this computer; install fasmg or pass --ce-assembler")
-    spasm = shutil.which("spasm-ng") or shutil.which("spasm")
+    spasm = find_classic_assembler()
     line("classic assembler (SPASM-ng)", bool(spasm), spasm or "not found; needed only for --target classic")
     print("Flash Apps")
     try:

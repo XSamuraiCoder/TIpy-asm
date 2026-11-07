@@ -51,6 +51,24 @@ class ApiTableTests(unittest.TestCase):
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
                 self.assertTrue(output.is_file())
 
+    def test_every_classic_example_assembles_with_spasm(self):
+        from ti84asm.fasmg import ensure_classic_include_directory, find_classic_assembler
+
+        spasm = find_classic_assembler()
+        if spasm is None:
+            self.skipTest("SPASM-ng is not on PATH")
+        include = ensure_classic_include_directory(spasm)
+        for library, name, method in examples():
+            if "classic" not in method.targets:
+                continue
+            with self.subTest(library=library, method=name), tempfile.TemporaryDirectory() as folder:
+                source, output = Path(folder) / "t.asm", Path(folder) / "T.8xp"
+                source.write_text(Compiler("T", "classic").compile(program(library, method.example)), encoding="ascii")
+                result = subprocess.run([spasm, "-I", str(include), str(source), str(output)], cwd=include,
+                                        text=True, capture_output=True)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertTrue(output.is_file())
+
     def test_methods_unavailable_on_a_target_say_so(self):
         for library, name, method in examples():
             for target in {"ce", "classic"} - set(method.targets):

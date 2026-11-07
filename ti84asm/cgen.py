@@ -156,7 +156,7 @@ class FlashAppCompiler:
                     self._register(item.asname, short)
             elif isinstance(stmt, ast.ImportFrom):
                 if stmt.module != "ti84":
-                    raise CompileError(f"line {stmt.lineno}: unsupported library import from {stmt.module}")
+                    raise CompileError(f"line {stmt.lineno}: cannot import from {stmt.module}: assembly files work only on the ce and classic targets, and libraries come from ti84")
                 for item in stmt.names:
                     if item.name not in KNOWN_MODULES:
                         raise CompileError(f"line {stmt.lineno}: unknown ti84 library: {item.name}")
@@ -950,6 +950,12 @@ class FlashAppCompiler:
                 code, ty = self.expr(source)
                 if ty != STR:
                     self.fail(f"{attr}() parameter {name} must be a string")
+            elif kind == "o":   # text origin literal
+                if (not isinstance(source, ast.Constant) or not isinstance(source.value, str)
+                        or source.value.lower() not in ("top_left", "center")):
+                    self.fail(f'{attr}() origin must be "top_left" or "center"')
+                values[name] = "1" if source.value.lower() == "center" else "0"
+                continue
             else:   # AppVar name literal
                 if not isinstance(source, ast.Constant) or not isinstance(source.value, str):
                     self.fail("AppVar name must be a string literal")

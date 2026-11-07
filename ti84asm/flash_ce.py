@@ -45,7 +45,7 @@ LIBRARY_C = {
         "fill_circle": ("ti84py_gfx_fill_circle", _p("x", "y", "radius"), "v"),
         "horiz_line": ("=ti84py_gfx_fill_rect({0}, {1}, {2}, 1, {3})", _p("x", "y", "length"), "v"),
         "vert_line": ("=ti84py_gfx_fill_rect({0}, {1}, 1, {2}, {3})", _p("x", "y", "length"), "v"),
-        "text": ("ti84py_gfx_text", [("string", "s", None), _X, _Y], "v"),
+        "text": ("ti84py_gfx_text", [("string", "s", None), _X, _Y, ("origin", "o", 0)], "v"),
         "text_int": ("ti84py_gfx_text_int", _p("value", "x", "y", color=False), "v"),
         "wait_key": ("ti84py_wait_key", [], "v"),
         "save_cursor": ("ti84py_gfx_save_cursor", _p("x", "y", color=False), "v"),
@@ -211,14 +211,17 @@ static void ti84py_lcd_16bpp(void)
 static void ti84py_gfx_begin(void)
 {
     if (ti84py_screen_active) return;
-    /* The OS owns the homescreen's native 16bpp mode; leave LCD control alone. */
+    /* The OS owns the homescreen's native 16bpp mode; leave LCD control alone.
+       Stop the run indicator so it does not draw over the program's graphics. */
+    os_RunIndicOff();
     os_SetDrawFGColor(0);
     ti84py_screen_active = 1;
 }
 static void ti84py_gfx_end(void)
 {
     if (!ti84py_screen_active) return;
-    os_DrawStatusBar();
+    /* As the assembly backend: back to a clean homescreen with its status bar. */
+    os_ClrHome();
     ti84py_screen_active = 0;
 }
 static int32_t ti84py_gfx_set_color(int32_t color)
@@ -355,18 +358,17 @@ static void ti84py_gfx_fill_circle(int32_t cx, int32_t cy, int32_t radius, int32
 }
 static void ti84py_gfx_clear(void)
 {
-    /* The OS clear routine owns the LCD state and avoids raw full-frame writes. */
+    /* As the assembly backend: clear all of VRAM to white, status bar included.
+       The OS homescreen clear would leave the status bar. */
     ti84py_gfx_begin();
-    os_ClrLCDFull();
+    boot_ClearVRAM();
     ti84py_text_row = 0;
 }
 static void ti84py_gfx_fill_screen(int32_t color)
 {
-    /* White is the calculator's native homescreen clear color. */
+    /* White is what the boot code's fast VRAM clear writes. */
     if ((uint16_t)color == 0xFFFFu) {
-        ti84py_gfx_begin();
-        os_ClrLCDFull();
-        ti84py_text_row = 0;
+        ti84py_gfx_clear();
         return;
     }
     ti84py_gfx_fill_rect(0, 0, 320, 240, color);
@@ -406,11 +408,19 @@ static void ti84py_graph_blit_screen(void) { }
 static void ti84py_graph_swap_draw(void) { }
 static void ti84py_graph_begin(void) { ti84py_gfx_begin(); }
 static void ti84py_graph_end(void) { ti84py_gfx_end(); }
-static void ti84py_gfx_text(const char *s, int32_t x, int32_t y)
+static void ti84py_gfx_text(const char *s, int32_t x, int32_t y, int32_t center)
 {
     ti84py_gfx_begin();
+    if (center) {
+        /* As the assembly backend: x and y offset the centered text. */
+        x += (320 - (int32_t)os_FontGetWidth(s)) / 2;
+        y += (240 - (int32_t)os_FontGetHeight()) / 2;
+        if (x < 0) x = 0;
+        if (y < 0) y = 0;
+    }
+    /* FontDrawText takes pixel coordinates, despite naming them column and row. */
     if (x >= 0 && y >= 0 && x < 320 && y < 240)
-        (void)os_FontDrawText(s, (uint16_t)(x / 6), (uint8_t)(y / 8));
+        (void)os_FontDrawText(s, (uint16_t)x, (uint8_t)y);
 }
 static int32_t ti84py_read_key(void)
 {
@@ -656,12 +666,16 @@ static int32_t ti84py_gfx_get_pixel(int32_t x, int32_t y)
 }
 static int32_t ti84py_kb_is_down(int32_t code)
 {
-    volatile uint8_t *config = (volatile uint8_t*)0xF50000;
+    volatile uint8_t *mode = (volatile uint8_t*)0xF50000;
     int32_t group, bit;
     if (code < 1 || code > 56) return 0;
-    *config = (uint8_t)((*config & ~3u) | 3u);   /* continuous scan */
     group = 7 - ((code - 1) >> 3);
     bit = (code - 1) & 7;
+    /* As CEdev's keypadc kb_ScanGroup: one scan with interrupts off. Leaving the
+       keypad scanning continuously crashes the OS. */
+    __asm__ volatile ("di");
+    *mode = 2;
+    while (*mode) { }
     return (((volatile uint16_t*)0xF50010)[group] >> bit) & 1;
 }
 static void ti84py_wait_key(void) { (void)ti84py_read_key(); }
@@ -680,7 +694,7 @@ static void ti84py_gfx_text_int(int32_t value, int32_t x, int32_t y)
 {
     char buffer[14];
     (void)ti84py_int_to_str(buffer, value);
-    ti84py_gfx_text(buffer, x, y);
+    ti84py_gfx_text(buffer, x, y, 0);
 }
 static char ti84py_line[64];
 static int32_t ti84py_line_len = 0;
