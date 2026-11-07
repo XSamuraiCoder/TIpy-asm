@@ -90,7 +90,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     convbin.add_arguments(commands.add_parser("convbin", help="convert binary data to TI files or C/asm/ICE arrays (like CEdev's convbin)"))
     convimg.add_arguments(commands.add_parser("convimg", help="convert an image to an AppVar or C/asm/ICE pixel data (like CEdev's convimg)"))
-    convfont.add_arguments(commands.add_parser("convfont", help="convert a TTF/OTF font (or .fnt) to an AppVar or C/asm/ICE arrays using cefont"))
+    convfont.add_arguments(commands)
     config = commands.add_parser("cedev-config", help="get CEdev toolchain configuration (like CEdev's cedev-config)")
     config_group = config.add_mutually_exclusive_group(required=True)
     config_group.add_argument("--version", action="store_true", help="print toolchain version")
@@ -354,13 +354,11 @@ def _run_doctor(args: argparse.Namespace) -> int:
     make = shutil.which("make")
     line("make", bool(make), make or "not found; it comes with CEdev")
     print("Optional converters")
-    for module, purpose in (("PIL", "images, install with: python -m pip install 'tipy-asm[images]'"),
-                            ("cefont", "TTF/OTF fonts, install with: python -m pip install cefont")):
-        try:
-            __import__(module)
-            line(module, True, "installed")
-        except ImportError:
-            line(module, False, purpose)
+    try:
+        __import__("PIL")
+        line("Pillow", True, "installed")
+    except ImportError:
+        line("Pillow", False, "needed for images; install with: python -m pip install 'tipy-asm[images]'")
     print("Project")
     try:
         project = load_project(args.project or Path.cwd())
@@ -399,8 +397,8 @@ def _dispatch(args: argparse.Namespace, job_holder: list[BuildJob]) -> int:
         _report(written, "Created")
         print(f"\nNext: cd {args.folder} and run tipy-asm build")
         return 0
-    if command in ("convbin", "convimg", "convfont"):
-        _report({"convbin": convbin, "convimg": convimg, "convfont": convfont}[command].run(args))
+    if command in ("convbin", "convimg"):
+        _report({"convbin": convbin, "convimg": convimg}[command].run(args))
         return 0
     if command == "cedev-config":
         option = next(flag for flag in ("version", "prefix", "makefile") if getattr(args, flag))
@@ -437,7 +435,11 @@ def _dispatch(args: argparse.Namespace, job_holder: list[BuildJob]) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
-    args = build_parser().parse_args(argv)
+    arguments = sys.argv[1:] if argv is None else argv
+    if arguments[:1] == ["convfont"]:
+        # convfont's options depend on their order, so it reads them itself, as CEdev's does.
+        return convfont.main(arguments[1:])
+    args = build_parser().parse_args(arguments)
     holder: list[BuildJob] = []
     try:
         return _dispatch(args, holder)

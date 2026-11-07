@@ -18,7 +18,7 @@ STUBS = Path(__file__).resolve().parent.parent / "ti84"
 def program(library: str, example: str) -> str:
     imports = sorted({library, "keyboard", "color"})
     lines = [f"from ti84 import {name}" for name in imports]
-    return "\n".join((*lines, "x = 3", "y = 4", "z = 0", example, ""))
+    return "\n".join((*lines, "x = 3", "y = 4", "z = 0", "score = 5", "hero = 0", example, ""))
 
 
 def examples():

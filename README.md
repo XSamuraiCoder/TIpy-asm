@@ -46,7 +46,8 @@ command alias `ti84py`.
 | `tipy-asm doctor` | Show installed tools and the project's setup |
 | `tipy-asm clean` | Delete the project's build folder |
 | `tipy-asm convert-project PATH` | Convert a CEdev or ICE project into a TIpy-asm project |
-| `tipy-asm convbin`, `convimg`, `convfont`, `convert-image` | Convert data, images, and fonts by hand |
+| `tipy-asm convbin`, `convimg`, `convert-image` | Convert data and images by hand |
+| `tipy-asm convfont` | Convert `.fnt` and text-format fonts, matching CEdev's `convfont` byte for byte |
 
 With no source, commands use the project in the current folder or the nearest
 parent folder. Errors are printed as `FILE:LINE: error: MESSAGE` with the source
@@ -152,6 +153,12 @@ python -m unittest discover -s tests
 stubbed, and compares results with CPython. It is not an emulator, so test on
 CEmu or a calculator as well.
 
+## Documentation
+
+The guide and method reference live on the
+[`docs` branch](https://github.com/XSamuraiCoder/TIpy-asm/tree/docs). That branch holds
+only the documentation, and this one holds only the package.
+
 ## Repository layout
 
 - `ti84asm/` contains the compiler, runtime helpers, CLI, and build drivers.
@@ -162,6 +169,5 @@ CEmu or a calculator as well.
   public methods.
 - `ti84/` contains the editor stubs.
 - `examples/` contains example projects.
-- `docs/` contains design reference material.
 
 This fork retains the upstream [MIT license](LICENSE).

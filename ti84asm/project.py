@@ -47,7 +47,7 @@ ASSET_KINDS = ("sprite", "image", "font", "binary")
 _TABLE_KEYS = {"name", "description", "main", "target", "bindir", "keep_asm", "toolchain", "flash", "assets"}
 _TOOLCHAIN_KEYS = {"ce_assembler", "classic_assembler"}
 _FLASH_KEYS = {"project_dir", "optimize", "appvar_prefix", "installer_name", "appvar_split_size"}
-_ASSET_KEYS = {"source", "kind", "name", "size", "mode"}
+_ASSET_KEYS = {"source", "kind", "name", "mode"}
 _ON_CALC_NAME = re.compile(r"[A-Za-z0-9]{1,8}")
 
 
@@ -56,7 +56,6 @@ class Asset:
     source: Path
     kind: str
     name: str
-    size: int | None = None       # font pixel height
     mode: str = "rgb565"          # image pixel format
 
     def output(self, bindir: Path) -> Path:
@@ -137,7 +136,7 @@ def _load_assets(tables: object, root: Path, path: Path) -> tuple[Asset, ...]:
         if name in names:
             raise CompileError(f"{path}: two assets are named {name}")
         names.add(name)
-        assets.append(Asset(source, kind, name, table.get("size"), table.get("mode", "rgb565")))
+        assets.append(Asset(source, kind, name, table.get("mode", "rgb565")))
     return tuple(assets)
 
 
@@ -145,7 +144,7 @@ def _guess_asset_kind(source: Path) -> str:
     suffix = source.suffix.lower()
     if suffix in (".png", ".bmp", ".jpg", ".jpeg", ".gif"):
         return "sprite"
-    if suffix in (".ttf", ".otf", ".fnt"):
+    if suffix in (".fnt", ".convfont", ".ttf", ".otf"):
         return "font"
     return "binary"
 
@@ -299,8 +298,8 @@ def _convert_asset(asset: Asset, output: Path) -> list[Path]:
         from .convimg import convert
         return convert(asset.source, output, "8xv", asset.name, asset.mode)
     if asset.kind == "font":
-        from .convfont import convert
-        return [convert(asset.source, output, "8xv", asset.name, asset.size)]
+        from .convfont import font_appvar
+        return [font_appvar(asset.source, output, asset.name)]
     from .convbin import MAX_VAR_SIZE, TYPE_APPVAR, ti_file
     data = asset.source.read_bytes()
     if len(data) > MAX_VAR_SIZE:

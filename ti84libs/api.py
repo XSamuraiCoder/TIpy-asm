@@ -36,41 +36,43 @@ API: dict[str, dict[str, Method]] = {
         "end": _m("end()", "Restore the OS screen state.", "graphics.end()"),
         "clear": _m("clear()", "Clear the whole screen.", "graphics.clear()"),
         "fill_screen": _m("fill_screen(color=WHITE)", "Fill the whole screen with a color.",
-                          "graphics.fill_screen(z)"),
+                          "graphics.fill_screen(graphics.WHITE)"),
         "pixel": _m("pixel(x, y, color=BLACK)", "Set one pixel; off-screen runtime positions are clipped.",
-                    "graphics.pixel(x, y, z)"),
+                    "graphics.pixel(x, y, graphics.RED)"),
         "get_pixel": _m("get_pixel(x, y) -> int", "Read a pixel's RGB565 color.", "z = graphics.get_pixel(x, y)",
                         (CE,), True, "reading pixels needs the CE target"),
-        "line": _m("line(x1, y1, x2, y2, color=BLACK)", "Draw a line.", "graphics.line(x, y, 5, 5, z)"),
+        "line": _m("line(x1, y1, x2, y2, color=BLACK)", "Draw a line.", "graphics.line(x, y, 5, 5, graphics.RED)"),
         "rect": _m("rect(x, y, width, height, color=BLACK)",
-                   "Draw an outline covering x..x+width inclusive.", "graphics.rect(x, y, 5, 5, z)"),
+                   "Draw an outline covering x..x+width inclusive.", "graphics.rect(x, y, 5, 5, graphics.RED)"),
         "rectangle": _m("rectangle(x, y, width, height, color=BLACK)",
-                        "Draw an outline exactly width by height pixels.", "graphics.rectangle(x, y, 5, 5, z)"),
+                        "Draw an outline exactly width by height pixels.", "graphics.rectangle(x, y, 5, 5, graphics.RED)"),
         "fill_rect": _m("fill_rect(x, y, width, height, color=BLACK)", "Draw a filled rectangle, clipped to the screen.",
-                        "graphics.fill_rect(x, y, 5, 5, z)"),
+                        "graphics.fill_rect(x, y, 5, 5, graphics.RED)"),
         "fill_rectangle": _m("fill_rectangle(x, y, width, height, color=BLACK)", "Same as fill_rect.",
-                             "graphics.fill_rectangle(x, y, 5, 5, z)"),
+                             "graphics.fill_rectangle(x, y, 5, 5, graphics.RED)"),
         "triangle": _m("triangle(x1, y1, x2, y2, x3, y3, color=BLACK)", "Draw a filled triangle.",
-                       "graphics.triangle(x, y, 9, 0, 0, 9, z)"),
-        "circle": _m("circle(x, y, radius, color=BLACK)", "Draw a circle outline.", "graphics.circle(x, y, 5, z)"),
+                       "graphics.triangle(x, y, 9, 0, 0, 9, graphics.RED)"),
+        "circle": _m("circle(x, y, radius, color=BLACK)", "Draw a circle outline.", "graphics.circle(x, y, 5, graphics.RED)"),
         "fill_circle": _m("fill_circle(x, y, radius, color=BLACK)", "Draw a filled circle.",
-                          "graphics.fill_circle(x, y, 5, z)"),
+                          "graphics.fill_circle(x, y, 5, graphics.RED)"),
         "horiz_line": _m("horiz_line(x, y, length, color=BLACK)", "Draw a fast horizontal line.",
-                         "graphics.horiz_line(x, y, 5, z)"),
+                         "graphics.horiz_line(x, y, 5, graphics.RED)"),
         "vert_line": _m("vert_line(x, y, length, color=BLACK)", "Draw a fast vertical line.",
-                        "graphics.vert_line(x, y, 5, z)"),
+                        "graphics.vert_line(x, y, 5, graphics.RED)"),
         "text": _m("text(string, x, y, color=BLACK, *, origin='top_left')",
                    "Draw a literal string. Runtime coordinates need the CE target.", "graphics.text('HI', 1, 2)"),
         "text_int": _m("text_int(value, x, y, color=BLACK)", "Draw an integer, such as a score.",
-                       "graphics.text_int(z, x, y)", (CE,), False, _TEXT_NOTE),
+                       "graphics.text_int(score, x, y)", (CE,), False, _TEXT_NOTE),
         "sprite": _m("sprite(pixels, x, y)", "Draw literal RGB565 rows; None is transparent.",
                      "graphics.sprite(((1, 2), (3, None)), x, y)"),
         "delay": _m("delay(count)", "Busy-wait for a count from 1 to 65535.", "graphics.delay(x)"),
         "wait_key": _m("wait_key()", "Wait for a key press.", "graphics.wait_key()"),
         "set_color": _m("set_color(color) -> int", "Set the Flash App's current color.", targets=(),
                         note="pass the color to each drawing call instead"),
-        "save_cursor": _m("save_cursor(x, y)", "Save the Flash App text cursor.", targets=()),
-        "restore_cursor": _m("restore_cursor()", "Restore the Flash App text cursor.", targets=()),
+        "save_cursor": _m("save_cursor(x, y)", "Save the 12 by 16 pixel screen area at x, y, so a cursor can be drawn over it.",
+                          targets=(), note="redraw what a cursor covered yourself"),
+        "restore_cursor": _m("restore_cursor()", "Put back the area saved by save_cursor().", targets=(),
+                             note="redraw what a cursor covered yourself"),
     },
     "keyboard": {
         "read": _m("read() -> int", "Wait for a key press and return its code.", "z = keyboard.read()", returns=True),
@@ -123,12 +125,12 @@ API: dict[str, dict[str, Method]] = {
     },
     "sprite": {
         "load": _m("load(name) -> int", "Find a sprite AppVar built by [[tool.tipy.assets]]; 0 if missing.",
-                   "z = sprite.load('HERO')", (CE,), True, "AppVar sprites need the CE target; use graphics.sprite"),
+                   "hero = sprite.load('HERO')", (CE,), True, "AppVar sprites need the CE target; use graphics.sprite"),
         "draw": _m("draw(sprite, x, y)", "Draw a loaded sprite, clipped, with color 0 transparent.",
-                   "sprite.draw(z, x, y)", (CE,), note="AppVar sprites need the CE target; use graphics.sprite"),
-        "width": _m("width(sprite) -> int", "A loaded sprite's width.", "z = sprite.width(z)", (CE,), True,
+                   "sprite.draw(hero, x, y)", (CE,), note="AppVar sprites need the CE target; use graphics.sprite"),
+        "width": _m("width(sprite) -> int", "A loaded sprite's width.", "z = sprite.width(hero)", (CE,), True,
                     "AppVar sprites need the CE target"),
-        "height": _m("height(sprite) -> int", "A loaded sprite's height.", "z = sprite.height(z)", (CE,), True,
+        "height": _m("height(sprite) -> int", "A loaded sprite's height.", "z = sprite.height(hero)", (CE,), True,
                      "AppVar sprites need the CE target"),
     },
     "color": {
@@ -148,7 +150,10 @@ API: dict[str, dict[str, Method]] = {
                     "the classic screen has no RGB colors"),
     },
     "font": {},
-    "graph": {},
+    "graph": {
+        "begin": _m("begin()", "Prepare the screen for drawing.", targets=(), note="use graphics.begin()"),
+        "end": _m("end()", "Restore the OS screen state.", targets=(), note="use graphics.end()"),
+    },
 }
 
 # Importable only for the Flash App backend.
@@ -170,13 +175,10 @@ def flash_available(library: str, method: str) -> bool:
 
 def format_api(library: str | None = None) -> str:
     """Render the API reference shown by ``tipy-asm api``."""
-    from ti84asm.flash_ce import LIBRARY_C
-
     if library is None:
         lines = ["Libraries (run 'tipy-asm api NAME' for details):"]
         for name, methods in API.items():
-            count = len(methods) or len(LIBRARY_C.get(f"ti84.{name}", {}))
-            lines.append(f"  {name:<10} {count} method(s)")
+            lines.append(f"  {name:<10} {len(methods)} method(s)")
         lines.append("\nImport with: from ti84 import graphics, keyboard")
         return "\n".join(lines)
     if library not in API:
@@ -187,7 +189,6 @@ def format_api(library: str | None = None) -> str:
         lines.append(NOT_IMPLEMENTED[library])
     if library in FLASH_ONLY:
         lines.append("Flash App backend only; build with 'tipy-asm flash-app'.")
-        lines.extend(f"  {name}()" for name in LIBRARY_C.get(f"ti84.{library}", {}))
     for name, method in methods.items():
         where = [*method.targets]
         if flash_available(library, name):
