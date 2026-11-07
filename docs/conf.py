@@ -4,7 +4,7 @@ import sys
 from pathlib import Path
 
 DOCS = Path(__file__).resolve().parent
-sys.path.insert(0, str(DOCS.parent))    # the method reference is read from ti84libs.api
+sys.path.insert(0, str(DOCS.parent / "package"))    # a copy of main; the reference is read from it
 sys.path.insert(0, str(DOCS / "_ext"))
 
 project = "TIpy-asm"

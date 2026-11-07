@@ -1,31 +1,9 @@
-# Upstream compiler build output
-*.exe
-!ti84asm/toolchain/bin/fasmg.exe
-*.obj
-*.res
-CEdev/
-
-# Python bytecode and local environments
-__pycache__/
-*.py[cod]
-.venv/
-venv/
-
-# Python package build output
-build/
-dist/
-*.egg-info/
-
 # Built documentation
 docs/_build/
 
-# Generated calculator programs and variables
-*.8xp
-*.8xv
-*.8ek
+# The package, fetched from the main branch to build against
+package/
 
-# Editor and operating-system metadata
-.vscode/
-.idea/
-Thumbs.db
-Desktop.ini
+__pycache__/
+.venv/
+venv/

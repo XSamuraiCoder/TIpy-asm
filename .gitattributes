@@ -1,2 +1,0 @@
-# Third-party files bundled in the package; leave them out of GitHub language stats.
-ti84asm/toolchain/** linguist-vendored

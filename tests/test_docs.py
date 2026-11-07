@@ -1,5 +1,6 @@
 """The documentation must cover the whole API and build without warnings.
 
+Needs a copy of the main branch in a folder named package.
 Run with:  python -m unittest discover -s tests -v
 """
 import importlib.util
@@ -10,6 +11,8 @@ import tempfile
 import textwrap
 import unittest
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "package"))
 
 from ti84asm.compiler import Compiler
 from ti84asm.errors import CompileError
