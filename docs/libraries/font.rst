@@ -7,7 +7,8 @@ FontLibC fonts are **not implemented**. This library only provides color constan
 the assembly targets, and calling anything else is a compile error. Use
 :py:func:`graphics.text() <ti84.graphics.text>` to draw text.
 
-``tipy-asm convfont`` can still convert fonts into AppVars for use by other programs.
+``tipy-asm convfont`` still builds FontLibC data for other programs. See
+:ref:`converting-fonts`.
 
 Constants
 ---------

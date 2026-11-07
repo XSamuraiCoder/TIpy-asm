@@ -16,7 +16,7 @@ CE builds need nothing else and work offline, because the package includes
 fasmg for Windows and Linux (x64 and x86) along with its CE includes. On other
 systems, such as macOS, put fasmg on your ``PATH``.
 
-Two targets and two converters need extra tools:
+Two targets and one converter need extra tools:
 
 .. list-table::
    :header-rows: 1
@@ -30,8 +30,6 @@ Two targets and two converters need extra tools:
      - `CEdev <https://github.com/CE-Programming/toolchain>`_ and an installer project
    * - Image assets
      - Pillow: ``python -m pip install "tipy-asm[images]"``
-   * - TTF and OTF font conversion
-     - cefont: ``python -m pip install cefont``
 
 Run ``tipy-asm doctor`` at any time to see what is installed.
 

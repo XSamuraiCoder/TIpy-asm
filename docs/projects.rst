@@ -96,8 +96,6 @@ all.
    * - ``kind``
      - ``sprite``, ``image``, ``font``, or ``binary``. The default depends on the
        file's suffix, and images default to ``sprite``.
-   * - ``size``
-     - Pixel height, for TTF and OTF fonts.
    * - ``mode``
      - ``rgb565`` or ``palette``, for the ``image`` kind.
 
@@ -112,8 +110,11 @@ drawn with :doc:`the sprite library <libraries/sprite>`:
    sprite.draw(hero, 40, 30)
 
 The other kinds are data for your program to read with
-:doc:`the storage library <libraries/storage>`. The assembly targets cannot draw
-FontLibC fonts yet.
+:doc:`the storage library <libraries/storage>`.
+
+A ``font`` asset takes a ``.fnt`` or text-format ``.convfont`` file and writes a one-font
+FONTPACK AppVar. TTF and OTF files need converting with a separate tool first. The
+assembly targets cannot draw FontLibC fonts yet, so these AppVars are for other programs.
 
 Toolchain paths
 ---------------

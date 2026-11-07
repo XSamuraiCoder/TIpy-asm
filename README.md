@@ -46,7 +46,8 @@ command alias `ti84py`.
 | `tipy-asm doctor` | Show installed tools and the project's setup |
 | `tipy-asm clean` | Delete the project's build folder |
 | `tipy-asm convert-project PATH` | Convert a CEdev or ICE project into a TIpy-asm project |
-| `tipy-asm convbin`, `convimg`, `convfont`, `convert-image` | Convert data, images, and fonts by hand |
+| `tipy-asm convbin`, `convimg`, `convert-image` | Convert data and images by hand |
+| `tipy-asm convfont` | Convert `.fnt` and text-format fonts, matching CEdev's `convfont` byte for byte |
 
 With no source, commands use the project in the current folder or the nearest
 parent folder. Errors are printed as `FILE:LINE: error: MESSAGE` with the source
@@ -162,7 +163,9 @@ python -m sphinx -W -b html docs docs/_build/html
 ```
 
 Then open `docs/_build/html/index.html`. The method pages are generated from
-`ti84libs/api.py`, and `.readthedocs.yaml` configures Read the Docs.
+`ti84libs/api.py`. `.github/workflows/docs.yml` checks the build on every push and
+pull request, and publishes the site to GitHub Pages from `main`.
+`.readthedocs.yaml` configures Read the Docs.
 
 ## Repository layout
 

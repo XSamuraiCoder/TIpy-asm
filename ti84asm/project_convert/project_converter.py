@@ -22,7 +22,8 @@ from .ice_convert import convert_ice
 
 _SKIPPED_FOLDERS = {"bin", "obj", ".git", "__pycache__"}
 _IMAGE_SUFFIXES = (".png", ".bmp", ".jpg", ".jpeg", ".gif")
-_ASSET_SUFFIXES = (*_IMAGE_SUFFIXES, ".ttf", ".otf", ".fnt", ".bin")
+_FONT_SUFFIXES = (".fnt", ".convfont")
+_ASSET_SUFFIXES = (*_IMAGE_SUFFIXES, *_FONT_SUFFIXES, ".ttf", ".otf", ".bin")
 _NOTES = "CONVERSION_NOTES.md"
 
 
@@ -160,12 +161,15 @@ class ProjectConverter:
             output.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(asset, output)
             self.converted_files.append(output)
+            if asset.suffix.lower() in (".ttf", ".otf"):
+                self.warnings.append(f"{asset.name}: copied, but not declared as an asset, because convfont "
+                                     "needs a .fnt or text-format font")
+                continue
             name = re.sub(r"[^A-Za-z0-9]", "", asset.stem)[:8].upper()
             if re.fullmatch(r"[A-Z][A-Z0-9]*", name) and name not in {entry.split('"')[3] for entry in declared}:
                 kind = ("sprite" if asset.suffix.lower() in _IMAGE_SUFFIXES
-                        else "font" if asset.suffix.lower() in (".fnt", ".ttf", ".otf") else "binary")
-                size = "\nsize = 16" if asset.suffix.lower() in (".ttf", ".otf") else ""
-                declared.append(f'[[tool.tipy.assets]]\nsource = "assets/{asset.name}"\nname = "{name}"\nkind = "{kind}"{size}\n')
+                        else "font" if asset.suffix.lower() in _FONT_SUFFIXES else "binary")
+                declared.append(f'[[tool.tipy.assets]]\nsource = "assets/{asset.name}"\nname = "{name}"\nkind = "{kind}"\n')
             else:
                 self.warnings.append(f"{asset.name}: copied, but its name cannot be an AppVar name; declare it by hand")
         return declared

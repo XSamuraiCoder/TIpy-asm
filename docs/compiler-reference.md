@@ -42,7 +42,7 @@ changing source behavior.
 * CE assembly `graphics.fill_rect()` emits one runtime row loop and bounded
   pixel chunks, so generated code size no longer grows with rectangle height.
 * The CE runtime and call table have one implementation in
-  `ti84asm/flash_ce.py`; `ti84libs/flash_ce.py` is only a compatibility shim.
+  `ti84asm/flash_ce.py`.
 
 TIpy's graph buffer is still a single software buffer with a 3-3-2 RGB palette.
 `swap_draw()` copies it to the display; it does not provide GraphX's exact
