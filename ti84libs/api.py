@@ -188,6 +188,10 @@ API: dict[str, dict[str, Method]] = {
         "text": _m("text(font, text, x, y, color=BLACK, background=-1) -> int", "Draw a string literal, or "
                    "text at an address, from pixel x, y; returns the x after it. A background of -1 leaves "
                    "what is behind.", "z = font.text(x, 'Hi', 2, y, font.BLUE)", (CE,), True, _FONT_NOTE),
+        "family_codes": _m("family_codes(pack, codes, start, limit) -> int",
+                           "Copy up to limit characters of a pack's family name into a module-level int "
+                           "array from index start; returns how many were copied, 0 if it has none.",
+                           "z = font.family_codes(x, CODES, 0, 2)", (CE,), True, _FONT_NOTE),
         "codes": _m("codes(font, codes, start, count, x, y, color=BLACK) -> int",
                     "Draw count character codes from a module-level int array, from index start, at pixel x, "
                     "y; returns the x after them.", "z = font.codes(x, CODES, 0, 2, 4, y)", (CE,), True,

@@ -26,7 +26,8 @@ CONSTANTS = {
 
 _ARITY = {"default": (0,), "load": (1, 2), "count": (1,), "find": (0, 1), "family": (1,), "by_style": (7,),
           "height": (1,), "width": (2,), "char": (4, 5), "text": (4, 5, 6), "text_width": (2,),
-          "paragraph": (5, 6, 7), "codes": (6, 7), "codes_width": (4,)}
+          "paragraph": (5, 6, 7), "codes": (6, 7), "codes_width": (4,),
+          "family_codes": (4,)}
 _KEYWORDS = {"codes": ("color",), "char": ("color",), "text": ("color", "background"), "paragraph": ("color", "background")}
 _POSITIONS = {"codes": 6, "char": 4, "text": 4, "paragraph": 5}
 
@@ -115,6 +116,11 @@ def emit_call(compiler, node: ast.Call) -> None:
         background = _paint(compiler, args[5] if len(args) > 5 else None, -1)
         compiler.call_function("_tipy_font_text", [args[0], _text(compiler, args[1]), args[2], args[3], color,
                                                    background])
+    elif method == "family_codes":
+        if not isinstance(args[1], ast.Name):
+            raise CompileError("font.family_codes() takes a module-level int array, such as NAME")
+        label, _length = compiler._array(args[1].id)
+        compiler.call_function("_tipy_font_family_codes", [args[0], LabelRef(label), *args[2:4]])
     elif method in ("codes", "codes_width"):
         array = args[1]
         if not isinstance(array, ast.Name):

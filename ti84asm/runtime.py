@@ -1351,6 +1351,22 @@ RAW["_rt_scroll"] = Raw(5, _scroll, ("_rt_vram",), ("_rt_sc_bytes", "_rt_sc_rows
                                                   "_rt_sc_n"))
 
 
+def _poke24(t: Target) -> str:
+    # Store _rt_a1 as a word at address _rt_a0: an element of an int array.
+    if not t.is_ce:
+        return ""
+    return """
+_rt_poke24:
+    ld hl,(_rt_a0)
+    ld de,(_rt_a1)
+    ld (hl),de
+    ret
+"""
+
+
+RAW["_rt_poke24"] = Raw(2, _poke24)
+
+
 RAW["_rt_line"] = Raw(5, _line, ("_rt_vram",), ("_rt_ln_x", "_rt_ln_y", "_rt_ln_dx", "_rt_ln_dy", "_rt_ln_sx",
                                               "_rt_ln_sy", "_rt_ln_err", "_rt_ln_e2"))
 
@@ -1687,6 +1703,23 @@ def _tipy_font_family(pack):
         return 0
     name = _tipy_word24(pack + meta + 3)
     return pack + name if name else 0
+
+def _tipy_font_family_codes(pack, codes, start, limit):
+    # Copy up to limit characters of the pack's family name into an int array at
+    # index start; return how many were copied.
+    name = _tipy_font_family(pack)
+    if name == 0:
+        return 0
+    codes += start * 3
+    count = 0
+    code = _tipy_byte(name)
+    while code and count < limit:
+        _rt_poke24(codes, code)
+        codes += 3
+        name += 1
+        count += 1
+        code = _tipy_byte(name)
+    return count
 
 def _tipy_font_by_style(pack, min_height, max_height, min_weight, max_weight, styles_set, styles_unset):
     # As fontlib_GetFontByStyle: the first font whose height, weight, and style match.
