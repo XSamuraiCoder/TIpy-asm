@@ -124,11 +124,22 @@ _rt_usb_init:
     ld a,(_rt_usb_active)
     or a,a
     jp nz,_rt_usb_init_ok
+    ; Interrupts stay off while the OS's USB state and the controller change, so
+    ; the OS's interrupt handler never sees them half done.
+    ld a,i
+    push af
+    di
     call ti.usb_DisableTimer
     ; Take the controller from the OS, as usbdrvce does: mark the OS's USB state
     ; invalid, so it resets its own stack when the program gives it back.
     ld a,1
     call _rt_usb_os_state
+    ; Keep the OS's key scan (GetCSC) away from the USB area while we use it, as
+    ; usbdrvce does: zero usbHandleKeys, and point the byte it patches somewhere safe.
+    xor a,a
+    ld ($D14091),a               ; usbHandleKeys
+    ld a,$60
+    ld ($D140A0),a
     ld hl,ti.flags+$1B
     set 5,(hl)
     ; Stop the host controller (EHCI section 2.3), which device mode does not use.
@@ -220,6 +231,10 @@ _rt_usb_init_device:
     ld (_rt_usb_rx_tail),a
     inc a
     ld (_rt_usb_active),a
+    pop af
+    jp po,_rt_usb_init_no_ei
+    ei
+_rt_usb_init_no_ei:
     ; Stay unplugged for 100 ms, then let a computer see the serial device.
     ld b,10
 _rt_usb_init_wait:
@@ -236,11 +251,11 @@ _rt_usb_init_ok:
 
 ; Fill the OS's USB area and its "initialized" byte with A.
 _rt_usb_os_state:
-    ld hl,ti.usbArea
+    ld hl,ti.usbInited
     ld (hl),a
-    ld de,ti.usbArea+1
+    ld de,ti.usbInited-1
     ld bc,ti.usbInited-ti.usbArea
-    ldir
+    lddr
     ret
 
 _rt_usb_active: db 0
@@ -269,6 +284,9 @@ _rt_usb_end:
     ld a,(_rt_usb_active)
     or a,a
     ret z
+    ld a,i
+    push af
+    di
     xor a,a
     ld (_rt_usb_active),a
     ld (_rt_usb_configured),a
@@ -284,6 +302,9 @@ _rt_usb_end:
     call _rt_usb_os_state
     ld hl,ti.flags+$1B
     res 5,(hl)
+    pop af
+    ret po
+    ei
     ret
 """
 

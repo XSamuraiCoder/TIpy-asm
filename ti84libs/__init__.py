@@ -92,6 +92,8 @@ def constant_library(compiler, node: ast.expr) -> int | None:
         return graphics.constant(compiler, node.attr)
     if library == "keyboard":
         return keyboard.key_code(node.attr)
+    if library == "font" and font.constant(node.attr) is not None:
+        return font.constant(node.attr)
     if library in ("color", "font"):
         return color.constant(compiler, node.attr)
     if library == "usb":

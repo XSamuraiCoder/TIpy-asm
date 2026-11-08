@@ -161,14 +161,33 @@ API: dict[str, dict[str, Method]] = {
     "font": {
         "default": _m("default() -> int", "TIpy's built-in 8-pixel font, built into the program: no AppVar "
                       "or clibs needed.", "z = font.default()", (CE,), True, _FONT_NOTE),
-        "load": _m("load(name, index=0) -> int", "Font index of a font pack AppVar, such as one built by a font "
-                   "asset; 0 if it is missing.", "z = font.load('SAXFONT')", (CE,), True, _FONT_NOTE),
-        "count": _m("count(name) -> int", "How many fonts a font pack AppVar holds; 0 if it is not one.",
+        "load": _m("load(pack, index=0) -> int", "Font index of a font pack: an AppVar name such as one built "
+                   "by a font asset, or a pack from find(); 0 if it is missing.", "z = font.load('SAXFONT')",
+                   (CE,), True, _FONT_NOTE),
+        "count": _m("count(pack) -> int", "How many fonts a font pack holds; 0 if it is not one.",
                     "z = font.count('SAXFONT')", (CE,), True, _FONT_NOTE),
+        "find": _m("find(n=0) -> int", "The n-th font pack AppVar on the calculator, whatever its name; 0 when "
+                   "there are no more.", "z = font.find(x)", (CE,), True, _FONT_NOTE),
+        "family": _m("family(pack) -> int", "The address of a pack's font family name, for font.text(); 0 if "
+                     "it has none.", "z = font.family(x)", (CE,), True, _FONT_NOTE),
+        "by_style": _m("by_style(pack, min_height, max_height, min_weight, max_weight, styles_set, styles_unset) "
+                       "-> int", "As fontlib_GetFontByStyle: the first font in a pack whose height, weight (such "
+                       "as font.BOLD), and styles (font.SERIF, ITALIC, OBLIQUE, MONOSPACED) match; 0 if none.",
+                       "z = font.by_style('SAXFONT', 6, 12, font.NORMAL, font.BOLD, 0, font.ITALIC)", (CE,),
+                       True, _FONT_NOTE),
         "height": _m("height(font) -> int", "A line's height in pixels, with the font's space above and below.",
                      "z = font.height(x)", (CE,), True, _FONT_NOTE),
         "width": _m("width(font, code) -> int", "A character's width in pixels; 0 if the font lacks it.",
                     "z = font.width(x, 65)", (CE,), True, _FONT_NOTE),
+        "text": _m("text(font, text, x, y, color=BLACK, background=-1) -> int", "Draw a string literal, or "
+                   "text at an address, from pixel x, y; returns the x after it. A background of -1 leaves "
+                   "what is behind.", "z = font.text(x, 'Hi', 2, y, font.BLUE)", (CE,), True, _FONT_NOTE),
+        "text_width": _m("text_width(font, text) -> int", "The width of a string in pixels.",
+                         "z = font.text_width(x, 'Hi')", (CE,), True, _FONT_NOTE),
+        "paragraph": _m("paragraph(font, text, x, y, width, color=BLACK, background=-1) -> int",
+                        "Draw text word-wrapped to lines of width pixels, breaking at newlines too; returns the "
+                        "y below it.", "z = font.paragraph(x, 'Hello there', 2, y, 100)", (CE,), True,
+                        _FONT_NOTE),
         "char": _m("char(font, code, x, y, color=BLACK) -> int", "Draw a character at pixel x, y, leaving "
                    "the background; returns its width.", "z = font.char(x, 65, y, 10, font.RED)", (CE,), True,
                    _FONT_NOTE),

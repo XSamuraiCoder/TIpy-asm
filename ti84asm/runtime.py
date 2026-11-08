@@ -1133,6 +1133,82 @@ _rt_ln_no_x:
 """
 
 
+def _vat(t: Target) -> str:
+    # Walk the variable table with os.NextSymEntry, keeping each variable's name in
+    # OP1 form (type, name, 0) so _rt_var_data can find its data.
+    if not t.is_ce:
+        return ""
+    return """
+_rt_vat_start:
+    push ix
+    call ti.os.GetSymTablePtr
+    pop ix
+    ld iy,ti.flags
+    ret
+_rt_vat_next:
+    push ix
+    ld de,_rt_vat_data
+    push de
+    ld de,_rt_vat_name+1
+    push de
+    ld de,_rt_vat_length
+    push de
+    ld de,_rt_vat_type
+    push de
+    ld hl,(_rt_a0)
+    push hl
+    call ti.os.NextSymEntry
+    pop bc
+    pop bc
+    pop bc
+    pop bc
+    pop bc
+    pop ix
+    ld iy,ti.flags
+    ld de,0
+    or a,a
+    sbc hl,de
+    ret z
+    add hl,de
+    push hl
+    ld hl,(_rt_vat_length)
+    ld de,9
+    or a,a
+    sbc hl,de
+    jr c,_rt_vat_name_fits
+    xor a,a
+    ld (_rt_vat_type),a          ; too long for an AppVar: skip it
+_rt_vat_name_fits:
+    ld a,(_rt_vat_type)
+    and a,$1F
+    ld (_rt_vat_name),a
+    ld hl,(_rt_vat_length)
+    ld de,_rt_vat_name+1
+    add hl,de
+    ld (hl),0
+    pop hl
+    ret
+; The address of the current variable's OP1-form name if it is an AppVar, else 0.
+_rt_vat_appvar:
+    ld a,(_rt_vat_name)
+    cp a,ti.AppVarObj
+    ld hl,_rt_vat_name
+    ret z
+    or a,a
+    sbc hl,hl
+    ret
+_rt_vat_type: db 0,0,0
+_rt_vat_length: db 0,0,0
+_rt_vat_data: db 0,0,0
+_rt_vat_name: db 0,0,0,0,0,0,0,0,0,0,0
+"""
+
+
+RAW["_rt_vat_start"] = Raw(0, _vat)
+RAW["_rt_vat_next"] = Raw(1, lambda t: "", ("_rt_vat_start",))
+RAW["_rt_vat_appvar"] = Raw(0, lambda t: "", ("_rt_vat_start",))
+
+
 RAW["_rt_line"] = Raw(5, _line, ("_rt_vram",), ("_rt_ln_x", "_rt_ln_y", "_rt_ln_dx", "_rt_ln_dy", "_rt_ln_sx",
                                               "_rt_ln_sy", "_rt_ln_err", "_rt_ln_e2"))
 
@@ -1375,7 +1451,9 @@ def _tipy_word24(address):
 
 def _tipy_font_pack(name):
     # The AppVar's data, if it is a FONTPACK as convfont and the font asset kind write.
-    pack = _rt_var_data(name)
+    return _tipy_font_pack_at(_rt_var_data(name))
+
+def _tipy_font_pack_at(pack):
     if pack == 0:
         return 0
     if _rt_peek16(pack) != 0x4F46 or _rt_peek16(pack + 2) != 0x544E:
@@ -1385,15 +1463,119 @@ def _tipy_font_pack(name):
     return pack
 
 def _tipy_font_count(name):
-    pack = _tipy_font_pack(name)
+    return _tipy_font_count_in(_tipy_font_pack(name))
+
+def _tipy_font_count_in(pack):
     return _tipy_byte(pack + 11) if pack else 0
 
 def _tipy_font_load(name, index):
-    pack = _tipy_font_pack(name)
+    return _tipy_font_in(_tipy_font_pack(name), index)
+
+def _tipy_font_in(pack, index):
     if pack == 0 or index < 0 or index >= _tipy_byte(pack + 11):
         return 0
     font = pack + _tipy_word24(pack + 12 + index * 3)
     return font if _tipy_byte(font) == 0 else 0
+
+def _tipy_font_find(n):
+    # The n-th font pack AppVar on the calculator, in the order the OS keeps them.
+    entry = _rt_vat_start()
+    while True:
+        entry = _rt_vat_next(entry)
+        if entry == 0:
+            return 0
+        name = _rt_vat_appvar()
+        if name:
+            pack = _tipy_font_pack_at(_rt_var_data(name))
+            if pack:
+                if n == 0:
+                    return pack
+                n -= 1
+
+def _tipy_font_family(pack):
+    # The address of the pack's family name, from its metadata; 0 if it has none.
+    if pack == 0:
+        return 0
+    meta = _tipy_word24(pack + 8)
+    if meta == 0:
+        return 0
+    name = _tipy_word24(pack + meta + 3)
+    return pack + name if name else 0
+
+def _tipy_font_by_style(pack, min_height, max_height, min_weight, max_weight, styles_set, styles_unset):
+    # As fontlib_GetFontByStyle: the first font whose height, weight, and style match.
+    count = _tipy_font_count_in(pack)
+    index = 0
+    while index < count:
+        font = _tipy_font_in(pack, index)
+        if font:
+            height = _tipy_byte(font + 1)
+            weight = _tipy_byte(font + 13)
+            style = _tipy_byte(font + 14)
+            if min_height <= height <= max_height and min_weight <= weight <= max_weight:
+                if (style & styles_set) == styles_set and (style & styles_unset) == 0:
+                    return font
+        index += 1
+    return 0
+
+def _tipy_font_by_style_named(name, min_height, max_height, min_weight, max_weight, styles_set, styles_unset):
+    return _tipy_font_by_style(_tipy_font_pack(name), min_height, max_height, min_weight, max_weight,
+                               styles_set, styles_unset)
+
+def _tipy_font_put(font, code, x, y, color, background):
+    # One character, over a background of the line's height unless it is -1.
+    if background >= 0:
+        _tipy_fill_rect(x, y, _tipy_font_width(font, code), _tipy_font_height(font), background)
+    return _rt_font_glyph(font, code, x, y, color)
+
+def _tipy_font_text(font, text, x, y, color, background):
+    code = _tipy_byte(text)
+    while code:
+        x += _tipy_font_put(font, code, x, y, color, background)
+        text += 1
+        code = _tipy_byte(text)
+    return x
+
+def _tipy_font_text_width(font, text):
+    width = 0
+    code = _tipy_byte(text)
+    while code:
+        width += _tipy_font_width(font, code)
+        text += 1
+        code = _tipy_byte(text)
+    return width
+
+def _tipy_font_paragraph(font, text, x, y, width, color, background):
+    # Word-wrap text into lines of at most width pixels; return the y below it.
+    left = x
+    right = x + width
+    line = _tipy_font_height(font)
+    code = _tipy_byte(text)
+    while code:
+        if code == 10:
+            x = left
+            y += line
+            text += 1
+        elif code == 32:
+            if x > left:
+                x += _tipy_font_put(font, 32, x, y, color, background)
+            text += 1
+        else:
+            end = text
+            word = 0
+            ch = code
+            while ch != 0 and ch != 32 and ch != 10:
+                word += _tipy_font_width(font, ch)
+                end += 1
+                ch = _tipy_byte(end)
+            if x + word > right and x > left:
+                x = left
+                y += line
+            while text < end:
+                x += _tipy_font_put(font, _tipy_byte(text), x, y, color, background)
+                text += 1
+        code = _tipy_byte(text)
+    return y + line
 
 def _tipy_font_height(font):
     # A line: the glyphs' height plus the font's space above and below.
