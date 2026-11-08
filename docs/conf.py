@@ -10,7 +10,7 @@ sys.path.insert(0, str(DOCS / "_ext"))
 project = "TIpy-asm"
 author = "Akhilesh Gollapudi"
 copyright = "the TIpy-asm authors"
-release = "1.0.1"
+release = "1.1.1"
 
 extensions = ["myst_parser", "sphinx_rtd_theme", "tipy_api"]
 exclude_patterns = ["_build"]
