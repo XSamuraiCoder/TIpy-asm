@@ -21,7 +21,16 @@ convimg = "ti84asm.convimg:run_with_args"
 convfont = "ti84asm.convfont:run_with_args"
 
 [tool.setuptools]
-packages = ["ti84asm", "ti84asm.project_convert", "ti84libs", "ti84"]
+packages = [
+    "ti84asm",
+    "ti84asm.project_convert",
+    "ti84asm.installer",
+    "ti84asm.toolchain",
+    "ti84asm.toolchain.bin",
+    "ti84asm.toolchain.include",
+    "ti84libs",
+    "ti84",
+]
 
 [tool.setuptools.package-data]
 ti84asm = ["toolchain/bin/*", "toolchain/include/*", "toolchain/*.txt", "installer/*.py", "installer/*.asm"]

@@ -407,6 +407,7 @@ _rt_usb_receive:
     and a,ti.bmUsbIntFifo3Out or ti.bmUsbIntFifo3Spk
     ret z
     ld hl,(ti.mpUsbFifo3Csr)
+    ld bc,0                      ; clear UBC: the DMA length register takes all 24 bits of BC
     ld a,h
     and a,7
     ld b,a
@@ -618,12 +619,14 @@ _rt_usb_setup_data:
     ex.s de,hl                   ; DE = wLength, L = direction
     ld a,l
     ld hl,0
-    add hl,de
+    ld h,d                       ; rebuild wLength with a clean upper byte
+    ld l,e
     or a,a
     sbc hl,bc
     jr nc,_rt_usb_setup_fits
-    push de
-    pop bc
+    ld bc,0
+    ld b,d
+    ld c,e
 _rt_usb_setup_fits:
     ld e,a
     pop hl

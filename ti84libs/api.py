@@ -87,6 +87,7 @@ API: dict[str, dict[str, Method]] = {
                   "z = keyboard.get()", returns=True),
         "is_down": _m("is_down(key) -> bool", "Whether a key is held now; several keys can be held together.",
                       "z = keyboard.is_down(keyboard.UP)", returns=True),
+
     },
     "math": {
         "abs": _m("abs(value) -> int", "Absolute value.", "z = math.abs(x)", returns=True),
@@ -183,7 +184,7 @@ API: dict[str, dict[str, Method]] = {
                    "text at an address, from pixel x, y; returns the x after it. A background of -1 leaves "
                    "what is behind.", "z = font.text(x, 'Hi', 2, y, font.BLUE)", (CE,), True, _FONT_NOTE),
         "text_width": _m("text_width(font, text) -> int", "The width of a string in pixels.",
-                         "z = font.text_width(x, 'Hi')", (CE,), True, _FONT_NOTE),
+                        "z = font.text_width(x, 'Hi')", (CE,), True, _FONT_NOTE),
         "paragraph": _m("paragraph(font, text, x, y, width, color=BLACK, background=-1) -> int",
                         "Draw text word-wrapped to lines of width pixels, breaking at newlines too; returns the "
                         "y below it.", "z = font.paragraph(x, 'Hello there', 2, y, 100)", (CE,), True,
