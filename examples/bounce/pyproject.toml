@@ -1,0 +1,12 @@
+[tool.tipy]
+name = "BOUNCE"
+description = "A bouncing ball"
+main = "src/main.py"
+target = "both"
+bindir = "bin"
+
+# Built into the program: from sprites import BALL; graphics.sprite(BALL, x, y).
+[[tool.tipy.assets]]
+source = "assets/ball.png"
+name = "BALL"
+storage = "program"

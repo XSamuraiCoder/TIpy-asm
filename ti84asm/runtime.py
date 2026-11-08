@@ -788,6 +788,47 @@ RAW: dict[str, Raw] = {
     "_rt_var_data": Raw(1, _var_data, ("_rt_find_var",)),
 }
 
+
+def _usb_raw() -> dict[str, Raw]:
+    """ti84.usb and ti84.serial helpers (see usbrt.py). The _rt_srl_ ones are CE, _rt_link_ classic."""
+    from . import usbrt as u
+
+    usb = ("_rt_usb_init", "_rt_usb_handler")
+    buffer = ("_rt_usb_buffer",)
+    serial = ("_rt_srl_begin", "_rt_srl_event", "_rt_srl_service", "_rt_usb_poll", *usb)
+    return {
+        "_rt_usb_init": Raw(1, u.usb_init, ("_rt_usb_handler",)),
+        "_rt_usb_handler": Raw(0, u.usb_handler),
+        "_rt_usb_end": Raw(0, u.usb_end, usb),
+        "_rt_usb_poll": Raw(0, u.usb_poll, usb),
+        "_rt_usb_find": Raw(1, u.usb_find),
+        "_rt_usb_role": Raw(0, u.usb_role, usb),
+        "_rt_usb_address": Raw(1, u.usb_address),
+        "_rt_usb_speed": Raw(1, u.usb_speed),
+        "_rt_usb_buffer": Raw(0, u.usb_buffer),
+        "_rt_usb_descriptor_word": Raw(2, u.usb_descriptor_word, buffer),
+        "_rt_usb_configure": Raw(1, u.usb_configure, buffer),
+        "_rt_usb_transfer": Raw(5, u.usb_transfer, (*buffer, "_rt_find_var")),
+        "_rt_usb_control": Raw(1, u.usb_control, buffer),
+        "_rt_usb_set_setup": Raw(5, u.usb_setup, ("_rt_usb_control",)),
+        "_rt_usb_peek": Raw(1, u.usb_peek, buffer),
+        "_rt_usb_poke": Raw(2, u.usb_poke, buffer),
+        "_rt_srl_begin": Raw(1, u.srl_begin, serial),
+        "_rt_srl_event": Raw(0, u.srl_event, serial),
+        "_rt_srl_service": Raw(0, u.srl_service, serial),
+        "_rt_srl_connected": Raw(0, u.srl_connected, serial),
+        "_rt_srl_write": Raw(2, u.srl_write, serial),
+        "_rt_srl_write_byte": Raw(1, u.srl_write_byte, ("_rt_srl_write", *serial)),
+        "_rt_srl_read_byte": Raw(0, u.srl_read_byte, serial),
+        "_rt_link_send": Raw(0, u.link_send),
+        "_rt_link_write": Raw(2, u.link_write, ("_rt_link_send",)),
+        "_rt_link_write_byte": Raw(1, u.link_write_byte, ("_rt_link_send",)),
+        "_rt_link_read_byte": Raw(0, u.link_read_byte),
+    }
+
+
+RAW.update(_usb_raw())
+
 # sin(0..90 degrees) * 256, matching the Flash App runtime's table.
 SIN_TABLE = (
     "_TIPY_SIN = (0, 4, 9, 13, 18, 22, 27, 31, 36, 40, 44, 49, 53, 58, 62, 66, 71, 75, 79, 83, "
@@ -993,6 +1034,106 @@ def _tipy_sprite_draw(sprite, x, y):
     while row < h and y + row < SCREEN_H:
         _rt_blit_row(x, y + row, sprite + 4 + (row * w + skip) * 2, count)
         row += 1
+
+def _tipy_sprite_load(name, index):
+    # Skip `index` sprites of a pack, and return 0 past its end.
+    sprite = _rt_var_data(name)
+    if sprite == 0 or index < 0:
+        return 0
+    left = _rt_peek16(sprite - 2)
+    while index > 0:
+        step = 4 + _rt_peek16(sprite) * _rt_peek16(sprite + 2) * 2
+        sprite += step
+        left -= step
+        index -= 1
+    if left < 4:
+        return 0
+    return sprite
+
+def _tipy_os_color(c):
+    # The OS font routines take colors with red and blue swapped.
+    return ((c & 31) << 11) | (c & 0x7E0) | ((c >> 11) & 31)
+
+def _tipy_byte(address):
+    return _rt_peek16(address) & 255
+
+def _tipy_word24(address):
+    return _rt_peek16(address) | (_tipy_byte(address + 2) << 16)
+
+def _tipy_font_pack(name):
+    # The AppVar's data, if it is a FONTPACK as convfont and the font asset kind write.
+    pack = _rt_var_data(name)
+    if pack == 0:
+        return 0
+    if _rt_peek16(pack) != 0x4F46 or _rt_peek16(pack + 2) != 0x544E:
+        return 0
+    if _rt_peek16(pack + 4) != 0x4150 or _rt_peek16(pack + 6) != 0x4B43:
+        return 0
+    return pack
+
+def _tipy_font_count(name):
+    pack = _tipy_font_pack(name)
+    return _tipy_byte(pack + 11) if pack else 0
+
+def _tipy_font_load(name, index):
+    pack = _tipy_font_pack(name)
+    if pack == 0 or index < 0 or index >= _tipy_byte(pack + 11):
+        return 0
+    font = pack + _tipy_word24(pack + 12 + index * 3)
+    return font if _tipy_byte(font) == 0 else 0
+
+def _tipy_font_height(font):
+    # A line: the glyphs' height plus the font's space above and below.
+    if font == 0:
+        return 0
+    return _tipy_byte(font + 1) + _tipy_byte(font + 11) + _tipy_byte(font + 12)
+
+def _tipy_font_glyph(font, code):
+    first = _tipy_byte(font + 3)
+    total = _tipy_byte(font + 2)
+    if total == 0:
+        total = 256
+    index = code - first
+    if index < 0 or index >= total:
+        return -1
+    return index
+
+def _tipy_font_width(font, code):
+    if font == 0:
+        return 0
+    index = _tipy_font_glyph(font, code)
+    if index < 0:
+        return 0
+    return _tipy_byte(font + _tipy_word24(font + 4) + index)
+
+def _tipy_font_char(font, code, x, y, color):
+    # Draw one glyph's set pixels; return its width.
+    if font == 0:
+        return 0
+    index = _tipy_font_glyph(font, code)
+    if index < 0:
+        return 0
+    width = _tipy_byte(font + _tipy_word24(font + 4) + index)
+    height = _tipy_byte(font + 1)
+    columns = (width + 7) >> 3
+    # Each glyph's entry points just past its first row; rows store their bytes right to left.
+    rows = font + _rt_peek16(font + _tipy_word24(font + 7) + index * 2) + 3 - columns
+    top = y + _tipy_byte(font + 11)
+    row = 0
+    while row < height:
+        py = top + row
+        if 0 <= py < SCREEN_H:
+            last = rows + row * columns + columns - 1
+            px = 0
+            while px < width:
+                bits = _tipy_byte(last - (px >> 3))
+                if bits & (128 >> (px & 7)):
+                    sx = x + px
+                    if 0 <= sx < SCREEN_W:
+                        _rt_pixel(sx, py, color)
+                px += 1
+        row += 1
+    return width
 
 def _tipy_sprite_width(sprite):
     return _rt_peek16(sprite) if sprite else 0

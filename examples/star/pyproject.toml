@@ -1,0 +1,6 @@
+[tool.tipy]
+name = "STAR"
+description = "A spinning star"
+main = "src/main.py"
+target = "both"
+bindir = "bin"

@@ -1,0 +1,10 @@
+[tool.tipy]
+name = "WALK"
+description = "Walk a sprite around the screen"
+main = "src/main.py"
+target = "ce"
+bindir = "bin"
+
+[[tool.tipy.assets]]
+source = "assets/hero.png"
+name = "HERO"

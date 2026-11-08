@@ -21,8 +21,8 @@ from .errors import CompileError
 from .fasmg import (bundled_fasmg, ensure_ce_includes, ensure_classic_include_directory, ensure_fasmg,
                     find_classic_assembler)
 from .image import convert_image
-from .project import (ProjectConfig, Segment, build_assets, clean_project, format_diagnostic, load_project, load_sources,
-                      new_project)
+from .project import (ProjectConfig, Segment, build_assets, clean_project, format_diagnostic, generate_asset_modules,
+                      load_project, load_sources, new_project)
 
 
 def _source_options(command: argparse.ArgumentParser, suffix: str) -> None:
@@ -153,6 +153,8 @@ def _resolve_job(args: argparse.Namespace, default_target: str = "classic") -> B
         source = source or project.main
         name = name or project.name
         target = target or project.target
+        # Sprites built into the program are a module the source imports, so write it first.
+        generate_asset_modules(project)
     return BuildJob(source, name, target or default_target, output, project)
 
 
@@ -309,6 +311,8 @@ def _run_flash(args: argparse.Namespace) -> tuple[list[Path], list[Segment]]:
     if args.source is None or args.project is not None:
         project = load_project(args.project or Path.cwd())
     source_path = args.source or project.main
+    if project is not None:
+        generate_asset_modules(project)
     flash = project.flash if project else None
     project_dir = args.project_dir or (flash.project_dir if flash else None)
     if project_dir is None:
@@ -371,7 +375,8 @@ def _run_doctor(args: argparse.Namespace) -> int:
     print(f"  {project.name}: {project.main} -> {project.bindir} (target {project.target})")
     for asset in project.assets:
         state = "ok" if asset.source.is_file() else "--"
-        print(f"  [{state}] asset {asset.name} ({asset.kind}): {asset.source}")
+        where = {"appvar": "", "program": ", in the program", "pack": f", in pack {asset.pack}"}[asset.storage]
+        print(f"  [{state}] asset {asset.name} ({asset.kind}{where}): {asset.source}")
     if project.flash.project_dir:
         found = (project.flash.project_dir / "installer" / "makefile").is_file()
         line("Flash installer", found, str(project.flash.project_dir / "installer" / "makefile"))

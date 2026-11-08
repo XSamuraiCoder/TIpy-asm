@@ -8,7 +8,9 @@ from . import graphics as graphics
 from . import keyboard as keyboard
 from . import math as math
 from . import random as random
+from . import serial as serial
 from . import sprite as sprite
 from . import storage as storage
+from . import usb as usb
 
-__all__ = ["color", "file", "font", "graph", "graphics", "keyboard", "math", "random", "sprite", "storage"]
+__all__ = ["color", "file", "font", "graph", "graphics", "keyboard", "math", "random", "serial", "sprite", "storage", "usb"]

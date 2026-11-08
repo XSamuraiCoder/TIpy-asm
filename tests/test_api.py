@@ -115,8 +115,8 @@ class ErrorMessageTests(unittest.TestCase):
         self.assertIn("ti84.storage", self.error("from ti84 import fileioc\n"))
         self.assertIn("flash-app", self.error("from ti84 import graph\n"))
 
-    def test_font_methods_point_to_graphics_text(self):
-        self.assertIn("graphics.text", self.error('from ti84 import font\nx = font.load("F")\n'))
+    def test_font_packs_on_classic_point_to_graphics_text(self):
+        self.assertIn("graphics.text", self.error('from ti84 import font\nx = font.load("F")\n', "classic"))
 
     def test_unsupported_syntax_names_the_feature_and_line(self):
         message = self.error("x = 1\ny = x / 2\n")

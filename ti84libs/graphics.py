@@ -790,9 +790,52 @@ _SHAPES = {"pixel", "line", "rect", "rectangle", "circle", "fill_rect", "fill_re
            "triangle", "horiz_line", "vert_line"}
 
 
+def _os_color(color: int) -> int:
+    # The OS font routines take colors with red and blue swapped.
+    return ((color & 0x1F) << 11) | (color & 0x7E0) | ((color >> 11) & 0x1F)
+
+
+def _emit_char(compiler, node: ast.Call) -> None:
+    """char(code, x, y, color=BLACK, background=WHITE): one character from its code, in the OS font."""
+    names = ("code", "x", "y", "color", "background")
+    bound = dict(zip(names, node.args))
+    for keyword in node.keywords:
+        if keyword.arg not in names or keyword.arg in bound:
+            raise CompileError("char() takes code, x, y, color=BLACK, background=WHITE")
+        bound[keyword.arg] = keyword.value
+    if len(node.args) > len(names) or not all(name in bound for name in names[:3]):
+        raise CompileError("char() takes code, x, y, color=BLACK, background=WHITE")
+    colors = (bound.get("color", ast.Constant(_default_color(compiler))),
+              bound.get("background", ast.Constant(COLORS["WHITE"])))
+    buffer = compiler.char_buffer_label()
+    compiler.expression(bound["code"])
+    compiler.emit("    ld a,l")
+    compiler.emit(f"    ld ({buffer}),a")
+    for node_color, routine in zip(colors, ("SetDrawFGColor", "SetDrawBGColor")):
+        if compiler.constant_integer(node_color) is not None:
+            compiler.emit(f"    ld hl,{_os_color(_color(compiler, node_color, 'char color'))}")
+        else:
+            compiler.call_function("_tipy_os_color", [node_color])
+        compiler.emit("    push hl")
+        compiler.emit(f"    call ti.os.{routine}")
+        compiler.emit("    pop hl")
+    compiler.expression(bound["y"])
+    compiler.emit("    push hl")
+    compiler.expression(bound["x"])
+    compiler.emit("    push hl")
+    compiler.emit(f"    ld hl,{buffer}")
+    compiler.emit("    push hl")
+    compiler.emit("    call ti.os.FontDrawText")
+    compiler.emit("    ld hl,9")
+    compiler.emit("    add hl,sp")
+    compiler.emit("    ld sp,hl")
+
+
 def emit_call(compiler, node: ast.Call) -> None:
     method = node.func.attr
-    if method in _SHAPES:
+    if method == "char":
+        _emit_char(compiler, node)
+    elif method in _SHAPES:
         _emit_shape(compiler, node, method)
     elif method == "sprite":
         _emit_sprite(compiler, node)

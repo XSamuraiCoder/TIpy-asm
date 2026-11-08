@@ -29,6 +29,8 @@ def _m(signature: str, doc: str, example: str = "", targets: tuple[str, ...] = B
 
 
 _TEXT_NOTE = "the classic target draws text from literal coordinates; use graphics.text with constants"
+_FONT_NOTE = "font packs draw on the CE; the classic target draws literal text with graphics.text"
+_USB_NOTE = "CE USB uses CEdev's usbdrvce library; on classic, ti84.serial talks over the link port"
 
 API: dict[str, dict[str, Method]] = {
     "graphics": {
@@ -62,6 +64,10 @@ API: dict[str, dict[str, Method]] = {
         "text": _m("text(string, x, y, color=BLACK, *, origin='top_left')",
                    "Draw a string at pixel x, y. origin='center' centers it, and x, y then offset it. "
                    "Runtime coordinates need the CE target.", "graphics.text('HI', 0, 0, origin='center')"),
+        "char": _m("char(code, x, y, color=BLACK, background=WHITE)",
+                   "Draw one character from its code, such as 65 for A, at pixel x, y in the OS font.",
+                   "graphics.char(x, y, 20, graphics.RED)", (CE,),
+                   note="the classic target draws literal text only; use graphics.text"),
         "text_int": _m("text_int(value, x, y, color=BLACK)", "Draw an integer, such as a score.",
                        "graphics.text_int(score, x, y)", (CE,), False, _TEXT_NOTE),
         "sprite": _m("sprite(pixels, x, y)", "Draw literal RGB565 rows; None is transparent.",
@@ -125,7 +131,9 @@ API: dict[str, dict[str, Method]] = {
                         "file.write_u16('SAVE', x, y)"),
     },
     "sprite": {
-        "load": _m("load(name) -> int", "Find a sprite AppVar built by [[tool.tipy.assets]]; 0 if missing.",
+        "load": _m("load(name, index=0) -> int",
+                   "Find a sprite AppVar built by [[tool.tipy.assets]], or sprite number index of a pack; "
+                   "0 if missing.",
                    "hero = sprite.load('HERO')", (CE,), True, "AppVar sprites need the CE target; use graphics.sprite"),
         "draw": _m("draw(sprite, x, y)", "Draw a loaded sprite, clipped, with color 0 transparent.",
                    "sprite.draw(hero, x, y)", (CE,), note="AppVar sprites need the CE target; use graphics.sprite"),
@@ -150,7 +158,74 @@ API: dict[str, dict[str, Method]] = {
                     "z = color.blend(color.RED, color.BLUE)", (CE,), True,
                     "the classic screen has no RGB colors"),
     },
-    "font": {},
+    "font": {
+        "load": _m("load(name, index=0) -> int", "Font index of a font pack AppVar, such as one built by a font "
+                   "asset; 0 if it is missing.", "z = font.load('SAXFONT')", (CE,), True, _FONT_NOTE),
+        "count": _m("count(name) -> int", "How many fonts a font pack AppVar holds; 0 if it is not one.",
+                    "z = font.count('SAXFONT')", (CE,), True, _FONT_NOTE),
+        "height": _m("height(font) -> int", "A line's height in pixels, with the font's space above and below.",
+                     "z = font.height(x)", (CE,), True, _FONT_NOTE),
+        "width": _m("width(font, code) -> int", "A character's width in pixels; 0 if the font lacks it.",
+                    "z = font.width(x, 65)", (CE,), True, _FONT_NOTE),
+        "char": _m("char(font, code, x, y, color=BLACK) -> int", "Draw a character at pixel x, y, leaving "
+                   "the background; returns its width.", "z = font.char(x, 65, y, 10, font.RED)", (CE,), True,
+                   _FONT_NOTE),
+    },
+    "usb": {
+        "begin": _m("begin() -> int", "Start the USB driver, as host or device; 0 on success, else a USB error.",
+                    "z = usb.begin()", (CE,), True, _USB_NOTE),
+        "end": _m("end()", "Stop the USB driver. A program that started it also stops it when it exits.",
+                  "usb.end()", (CE,), note=_USB_NOTE),
+        "poll": _m("poll() -> int", "Handle USB events; call it often. 0, a USB error, or -1 before begin().",
+                   "z = usb.poll()", (CE,), True, _USB_NOTE),
+        "role": _m("role() -> int", "usb.HOST or usb.DEVICE, plus usb.PLUG_B when the B end of the cable is in.",
+                   "z = usb.role()", (CE,), True, _USB_NOTE),
+        "last_event": _m("last_event() -> int", "The latest USB event, such as usb.DEVICE_ENABLED; -1 before any.",
+                         "z = usb.last_event()", (CE,), True, _USB_NOTE),
+        "find": _m("find(previous=0) -> int", "The next ready device after previous (not hubs); 0 when there "
+                   "are no more.", "z = usb.find(x)", (CE,), True, _USB_NOTE),
+        "connected": _m("connected() -> bool", "Whether a device is ready to use, or a computer has set the "
+                        "calculator up.", "z = usb.connected()", (CE,), True, _USB_NOTE),
+        "vendor_id": _m("vendor_id(device) -> int", "The device's USB vendor ID, or -1 if it cannot be read.",
+                        "z = usb.vendor_id(x)", (CE,), True, _USB_NOTE),
+        "product_id": _m("product_id(device) -> int", "The device's USB product ID, or -1 if it cannot be read.",
+                         "z = usb.product_id(x)", (CE,), True, _USB_NOTE),
+        "address": _m("address(device) -> int", "The device's USB address.", "z = usb.address(x)", (CE,), True,
+                      _USB_NOTE),
+        "speed": _m("speed(device) -> int", "usb.FULL_SPEED, usb.LOW_SPEED, or -1 if unknown.",
+                    "z = usb.speed(x)", (CE,), True, _USB_NOTE),
+        "configure": _m("configure(device) -> int", "Select the device's first configuration, which a host "
+                        "must do before using its endpoints; 0 or a USB error.", "z = usb.configure(x)", (CE,),
+                        True, _USB_NOTE),
+        "transfer": _m("transfer(device, endpoint, name, offset, length) -> int",
+                       "Send or receive length bytes at offset in a RAM AppVar through an endpoint address "
+                       "(0x80 and up receive); the bytes moved, or -1.",
+                       "z = usb.transfer(x, 0x81, 'BUF', 0, y)", (CE,), True, _USB_NOTE),
+        "control": _m("control(device, request_type, request, value, index, length) -> int",
+                      "A control transfer, with its data in the 256-byte USB buffer; the bytes moved, or -1.",
+                      "z = usb.control(x, 0x80, 6, 0x100, 0, 18)", (CE,), True, _USB_NOTE),
+        "buffer_get": _m("buffer_get(index) -> int", "Byte index (0-255) of the USB buffer.",
+                         "z = usb.buffer_get(x)", (CE,), True, _USB_NOTE),
+        "buffer_set": _m("buffer_set(index, value)", "Set byte index (0-255) of the USB buffer.",
+                         "usb.buffer_set(x, y)", (CE,), note=_USB_NOTE),
+    },
+    "serial": {
+        "begin": _m("begin(baud=9600) -> int", "Get ready to send and receive; 0 on success. On CE this starts "
+                    "USB serial, at baud when the calculator is the host.", "z = serial.begin()", returns=True),
+        "end": _m("end()", "Stop serial. On CE, a program that started it also stops it when it exits.",
+                  "serial.end()"),
+        "connected": _m("connected() -> bool", "Whether a serial device is ready. On CE, this also handles USB "
+                        "events. The classic link port cannot tell, so it is always True there.",
+                        "z = serial.connected()", returns=True),
+        "read_byte": _m("read_byte() -> int", "The next byte received, or -1 at once if none has arrived.",
+                        "z = serial.read_byte()", returns=True),
+        "write_byte": _m("write_byte(value) -> bool", "Send one byte; False if it could not be sent.",
+                         "z = serial.write_byte(x)", returns=True),
+        "write": _m("write(text) -> int", "Send a string literal; the number of bytes sent.",
+                    "z = serial.write('HI')", returns=True),
+        "write_int": _m("write_int(value) -> int", "Send a number as decimal text; the number of bytes sent.",
+                        "z = serial.write_int(x)", returns=True),
+    },
     "graph": {
         "begin": _m("begin()", "Prepare the screen for drawing.", targets=(), note="use graphics.begin()"),
         "end": _m("end()", "Restore the OS screen state.", targets=(), note="use graphics.end()"),
@@ -162,7 +237,6 @@ FLASH_ONLY = ("graph",)
 REPLACED = {"fileioc": "ti84.fileioc is not available; use ti84.storage or ti84.file for AppVars"}
 NOT_IMPLEMENTED = {
     "sprite": "this sprite method is not implemented; available methods load and draw AppVar sprites",
-    "font": "FontLibC fonts are not implemented, so ti84.font only provides color constants; use graphics.text()",
 }
 
 

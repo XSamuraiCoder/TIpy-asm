@@ -97,8 +97,8 @@ def convert(image_path: Path, output: Path, oformat: str, name: str,
     return written
 
 
-def convert_sprite(image_path: Path, output: Path, name: str) -> Path:
-    """Write an AppVar for ``sprite.load()``: u16 width, u16 height, then RGB565 pixels.
+def sprite_data(image_path: Path) -> bytes:
+    """One sprite as ``sprite.load()`` reads it: u16 width, u16 height, then RGB565 pixels.
 
     Color 0 means transparent, so opaque black is stored as the nearest visible
     color, keeping black outlines from disappearing.
@@ -111,11 +111,26 @@ def convert_sprite(image_path: Path, output: Path, name: str) -> Path:
             red, green, blue, alpha = pixels[x, y]
             value = 0 if alpha < 128 else (_rgb565(red, green, blue) or 0x0020)
             data += value.to_bytes(2, "little")
+    return bytes(data)
+
+
+def convert_sprite_pack(image_paths: list[Path], output: Path, name: str) -> Path:
+    """Write an AppVar of sprites one after another; ``sprite.load(name, index)`` finds each.
+
+    A single-sprite AppVar is a pack of one, so ``sprite.load(name)`` reads both.
+    """
+    data = b"".join(sprite_data(path) for path in image_paths)
     if len(data) > MAX_VAR_SIZE:
-        raise CompileError(f"{image_path}: sprite is {len(data)} bytes, too large for one AppVar (max {MAX_VAR_SIZE})")
+        where = image_paths[0] if len(image_paths) == 1 else f"sprite pack {name}"
+        raise CompileError(f"{where}: sprites are {len(data)} bytes, too large for one AppVar (max {MAX_VAR_SIZE})")
     output.parent.mkdir(parents=True, exist_ok=True)
-    output.write_bytes(ti_file(TYPE_APPVAR, name, bytes(data), archived=True))
+    output.write_bytes(ti_file(TYPE_APPVAR, name, data, archived=True))
     return output
+
+
+def convert_sprite(image_path: Path, output: Path, name: str) -> Path:
+    """Write an AppVar holding one sprite for ``sprite.load()``."""
+    return convert_sprite_pack([image_path], output, name)
 
 
 # ---------------------------------------------------------------- command line

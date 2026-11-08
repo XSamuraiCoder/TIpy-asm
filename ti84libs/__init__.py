@@ -7,7 +7,7 @@ import difflib
 
 from ti84asm.errors import CompileError
 
-from . import color, graphics, keyboard, math as mathlib, random as randomlib, sprite, storage
+from . import color, font, graphics, keyboard, math as mathlib, random as randomlib, serial, sprite, storage, usb
 from .api import API, FLASH_ONLY, NOT_IMPLEMENTED, REPLACED
 
 _HANDLERS = {
@@ -19,6 +19,9 @@ _HANDLERS = {
     "file": storage.emit_call,
     "sprite": sprite.emit_call,
     "color": color.emit_call,
+    "usb": usb.emit_call,
+    "font": font.emit_call,
+    "serial": serial.emit_call,
 }
 
 
@@ -91,6 +94,8 @@ def constant_library(compiler, node: ast.expr) -> int | None:
         return keyboard.key_code(node.attr)
     if library in ("color", "font"):
         return color.constant(compiler, node.attr)
+    if library == "usb":
+        return usb.constant(node.attr)
     return None
 
 

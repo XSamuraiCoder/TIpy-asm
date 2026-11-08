@@ -1,0 +1,6 @@
+[tool.tipy]
+name = "DICE"
+description = "Roll two dice and keep stats"
+main = "src/main.py"
+target = "both"
+bindir = "bin"

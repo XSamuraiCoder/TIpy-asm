@@ -11,6 +11,29 @@ def _rgb565(red: int, green: int, blue: int) -> int:
     return ((red >> 3) << 11) | ((green >> 2) << 5) | (blue >> 3)
 
 
+def sprite_rows(image_path: Path, alpha_threshold: int = 128) -> list[str]:
+    """The image as ``graphics.sprite`` rows of RGB565 values, None where transparent."""
+    try:
+        from PIL import Image
+    except ImportError as exc:
+        raise CompileError("image conversion needs Pillow; install it with: python -m pip install 'tipy-asm[images]'") from exc
+    try:
+        with Image.open(image_path) as source:
+            image = source.convert("RGBA")
+    except (OSError, ValueError) as exc:
+        raise CompileError(f"cannot read image {image_path}: {exc}") from exc
+    width, height = image.size
+    pixels = image.load()
+    rows = []
+    for row in range(height):
+        values = []
+        for col in range(width):
+            red, green, blue, alpha = pixels[col, row]
+            values.append("None" if alpha < alpha_threshold else f"0x{_rgb565(red, green, blue):04X}")
+        rows.append("    (" + ", ".join(values) + ",),")
+    return rows
+
+
 def convert_image(image_path: Path, output_path: Path, x: int = 0, y: int = 0,
                   alpha_threshold: int = 128, fit: str | None = None) -> None:
     """Write a Python-subset program drawing an image as a TIpy sprite."""

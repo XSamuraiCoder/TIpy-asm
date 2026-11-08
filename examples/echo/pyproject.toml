@@ -1,0 +1,6 @@
+[tool.tipy]
+name = "ECHO"
+description = "Echo serial bytes back"
+main = "src/main.py"
+target = "both"
+bindir = "bin"

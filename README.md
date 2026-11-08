@@ -21,8 +21,24 @@ That creates a program you can move around with the arrow keys, and writes
 includes fasmg for Windows and Linux (x64 and x86), plus its CE includes. On other
 systems, put fasmg on PATH. Run `tipy-asm doctor` to see what is installed.
 
-`examples\catch` is a complete small game. The package also installs the shorter
-command alias `ti84py`.
+The package also installs the shorter command alias `ti84py`.
+
+## Examples
+
+Each folder in `examples/` is a project; build one with `tipy-asm build examples/NAME`.
+
+| Example | Targets | Shows |
+|---|---|---|
+| `catch` | CE, classic | A game: functions, several files, arrays, `random`, held keys, a high score in `storage` |
+| `star` | CE, classic | A spinning star: `math.sin`/`cos`, lines and circles, `color.from_rgb`, held keys |
+| `dice` | CE, classic | Dice rolls: `random`, `keyboard.read`, 16-bit counters kept in a `file` |
+| `walk` | CE | A sprite you move: a PNG asset built into an AppVar, `sprite`, `math.clamp`, centered text |
+| `coins` | CE | A coin hunt using all three PNG sprite storages: its own AppVar, a shared pack, and built into the program |
+| `bounce` | CE, classic | A bouncing ball from a PNG built into the program, so it needs no AppVar |
+| `sax` | CE | SAX chat, ported from SAX-CE's C: `serial`, `font` packs, `graphics.char`, `file` settings |
+| `echo` | CE, classic | Echoes bytes with `serial`: USB serial on CE, the link port on classic |
+| `asm_demo` | CE, classic | Routines written in assembly files |
+| `flash_app` | Flash App | Hello world as a Flash App, with its installer |
 
 ## Targets
 

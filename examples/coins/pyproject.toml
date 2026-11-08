@@ -1,0 +1,31 @@
+[tool.tipy]
+name = "COINS"
+description = "Collect coins on a grassy field"
+main = "src/main.py"
+target = "ce"
+bindir = "bin"
+
+# The hero is its own AppVar, HERO.8xv: sprite.load("HERO").
+[[tool.tipy.assets]]
+source = "assets/hero.png"
+name = "HERO"
+storage = "appvar"
+
+# Grass and flowers share one AppVar, TILES.8xv: sprite.load("TILES", GRASS).
+[[tool.tipy.assets]]
+source = "assets/grass.png"
+name = "GRASS"
+storage = "pack"
+pack = "TILES"
+
+[[tool.tipy.assets]]
+source = "assets/flower.png"
+name = "FLOWER"
+storage = "pack"
+pack = "TILES"
+
+# The coin is built into the program: graphics.sprite(COIN, x, y).
+[[tool.tipy.assets]]
+source = "assets/coin.png"
+name = "COIN"
+storage = "program"

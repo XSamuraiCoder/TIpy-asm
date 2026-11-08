@@ -21,7 +21,7 @@ CONSTANTS = {"ti.lcdBpp16": 0x2D, "ti.mpLcdCtrl": 0xE30018, "ti.AppVarObj": 0x15
              "ti.ProgObj": 5, "ti.ProtProgObj": 6, "plotSScreen": 0x9340,
              "ti.AppObj": 0x14, "ti.OP1": 0xD005F8, "ti.OP3": 0xD0060E}
 PAIRS = {"b": ("bc", 8), "c": ("bc", 0), "d": ("de", 8), "e": ("de", 0), "h": ("hl", 8), "l": ("hl", 0)}
-WIDE = {"hl", "de", "bc", "ix", "sp"}
+WIDE = {"hl", "de", "bc", "ix", "iy", "sp"}
 
 
 class Timeout(Exception):
@@ -51,7 +51,13 @@ class Sim:
         self.archive_heap = self.layout.get("archive", self.layout["heap"] + 0x1000)
         self.port_mask = 0xFF
         # Registers start with junk so code relying on a stale upper byte fails.
-        self.r = {name: 0xAAAAAA & self.mask for name in ("hl", "de", "bc", "ix")}
+        self.r = {name: 0xAAAAAA & self.mask for name in ("hl", "de", "bc", "ix", "iy")}
+        # The classic link port: bytes the other calculator sends, and bytes sent to it.
+        self.link_in: list[int] = []
+        self.link_out: list[int] = []
+        self.link_connected = True
+        self.error_handlers: list[tuple[int, int]] = []
+        self._jump_to: int | None = None
         self.a = 0xAA
         self.sp = self.layout["stack"]
         self.S = self.Z = self.C = self.PV = False
@@ -85,6 +91,8 @@ class Sim:
             words = line.split(None, 1)
             mnemonic, rest = words[0], (words[1] if len(words) > 1 else "")
             operands = [item.strip() for item in rest.split(",")] if rest else []
+            if mnemonic == "rb":
+                mnemonic, operands = "db", ["0"] * int(rest)
             is_data = mnemonic in ("db", ".db", ".dw", "dw")
             for label in waiting:
                 self.labels[label] = data_at if is_data else code_base + len(self.code)
@@ -223,6 +231,34 @@ class Sim:
         self.sp += self.word_bytes
         return value
 
+    def _os_error(self) -> None:
+        """An OS error such as ERR:LINK: go to the newest error handler, as the OS does."""
+        if not self.error_handlers:
+            raise AssertionError("OS error with no error handler: the calculator would show ERR:LINK")
+        handler, sp = self.error_handlers.pop()
+        self.sp = sp
+        self._jump_to = handler
+
+    def call(self, address: int | str, arguments=(), limit: int = 1_000_000) -> int:
+        """Call a routine with C-style stack arguments, as a library calls back; return HL."""
+        if isinstance(address, str):
+            address = self.labels[address]
+        for value in reversed(arguments):
+            self.push(value)
+        token = 0xFFFFE0
+        self.push(token)
+        code_base = self.layout["code"]
+        pc, steps = address, 0
+        while pc != token:
+            steps += 1
+            if steps > limit:
+                raise Timeout(f"callback ran more than {limit} instructions")
+            mnemonic, operands = self.code[pc - code_base]
+            pc = self.step(mnemonic, operands, pc + 1)
+        for _ in arguments:
+            self.pop()
+        return self.r["hl"]
+
     # ------------------------------------------------------------------ run
     def run(self, limit: int = 3_000_000) -> "Sim":
         exit_token = self.layout["exit"]
@@ -246,33 +282,39 @@ class Sim:
     def step(self, m: str, ops: list[str], next_pc: int) -> int:
         if m == "ld":
             self._ld(ops[0], ops[1])
+        elif m == "push" and ops[0] == "af":
+            self.push(self.a << 8 | int(self.C) | int(self.Z) << 6)
+        elif m == "pop" and ops[0] == "af":
+            value = self.pop()
+            self.a, self.C, self.Z = (value >> 8) & 0xFF, bool(value & 1), bool(value & 0x40)
         elif m == "push":
             self.push(self.get(ops[0]))
         elif m == "pop":
             self.set(ops[0], self.pop())
         elif m == "ex":
             self.r["de"], self.r["hl"] = self.r["hl"], self.r["de"]
-        elif m == "add" and ops[0] == "hl":
-            result = self.r["hl"] + self.get(ops[1])
+        elif m == "add" and ops[0] in ("hl", "ix"):
+            result = self.r[ops[0]] + self.get(ops[1])
             self.C = result > self.mask
-            self.r["hl"] = result & self.mask
+            self.r[ops[0]] = result & self.mask
         elif m in ("sbc", "adc") and ops[0] == "hl":
             self._wide_carry_op(m, self.get(ops[1]))
         elif m == "inc" or m == "dec":
             self._step_register(m, ops[0])
         elif m in ("or", "and", "xor", "sub", "cp") or (m in ("add", "sbc") and ops[0] == "a"):
             self._alu(m, ops[-1])
-        elif m == "rr":
-            value = self.read(self.r["hl"])
+        elif m in ("rr", "sra", "srl"):
+            # On (hl) or an 8-bit register. As on the eZ80, "srl h / rr l" shifts only
+            # HL's low 16 bits.
+            target = ops[0]
+            value = self.read(self.r["hl"]) if target == "(hl)" else self.get(target)
             carry = value & 1
-            value = (value >> 1) | (0x80 if self.C else 0)
-            self.write(self.r["hl"], value)
-            self.flags8(value, bool(carry))
-        elif m == "sra":
-            value = self.read(self.r["hl"])
-            carry = value & 1
-            value = (value >> 1) | (value & 0x80)
-            self.write(self.r["hl"], value)
+            high = {"rr": 0x80 if self.C else 0, "sra": value & 0x80, "srl": 0}[m]
+            value = (value >> 1) | high
+            if target == "(hl)":
+                self.write(self.r["hl"], value)
+            else:
+                self.set(target, value)
             self.flags8(value, bool(carry))
         elif m == "rlca":
             self.C = bool(self.a & 0x80)
@@ -284,12 +326,23 @@ class Sim:
         elif m == "bit":
             self.Z = not (self.get(ops[1]) >> int(ops[0])) & 1
         elif m in ("jp", "jr"):
+            if ops == ["(hl)"]:
+                return self.r["hl"]
             if len(ops) == 1:
                 return self.value(ops[0])
             return self.value(ops[1]) if self.condition(ops[0]) else next_pc
         elif m == "djnz":
             self.set("b", self.get("b") - 1)
             return self.value(ops[0]) if self.get("b") else next_pc
+        elif m == "call" and len(ops) == 2:
+            if not self.condition(ops[0]):
+                return next_pc
+            return self.step("call", ops[1:], next_pc)
+        elif m == "call" and ops[0] == "APP_PUSH_ERRORH":
+            # The OS's error handler: on an error, it restores SP and jumps to HL.
+            self.error_handlers.append((self.r["hl"], self.sp))
+        elif m == "call" and ops[0] == "APP_POP_ERRORH":
+            self.error_handlers.pop()
         elif m == "call" and ops[0] in self.hooks:
             self.hooks[ops[0]](self)
         elif m == "call":
@@ -303,6 +356,9 @@ class Sim:
                 return self.pop()
         elif m.startswith("bcall("):
             self.rom(m[7:-1])
+            if self._jump_to is not None:
+                target, self._jump_to = self._jump_to, None
+                return target
         elif m == "ldir":
             if not self.r["bc"]:
                 raise AssertionError("LDIR with BC = 0 copies the whole address space and wipes RAM")
@@ -315,6 +371,8 @@ class Sim:
                     break
         elif m == "out":
             self.port_mask = self.a
+        elif m == "in" and ops[1] == "(0)":
+            self.a = 2 if self.link_in else 3
         elif m == "in":
             pressed = 0
             for code in self.held:
@@ -331,7 +389,10 @@ class Sim:
         if dest == "iy":
             return              # IY always points at the OS flags; flag bits are not modelled
         if dest in ("hl", "de", "bc", "ix", "sp"):
-            if src == "(hl)":
+            indexed = re.fullmatch(r"\(ix(?:\+(\d+))?\)", src)
+            if indexed:
+                self.set(dest, self.read(self.r["ix"] + int(indexed.group(1) or 0), self.word_bytes))
+            elif src == "(hl)":
                 self.set(dest, self.read(self.r["hl"], self.word_bytes))
             elif src.startswith("("):
                 self.set(dest, self.read(self.value(src[1:-1]), self.word_bytes))
@@ -451,6 +512,16 @@ class Sim:
             if not self.keys and getattr(self, "_idle_keys", 0) > 100000:
                 raise Timeout("program is waiting for a key the test did not provide")
             self._idle_keys = getattr(self, "_idle_keys", 0) + 1
+        elif name == "SendAByte":
+            if self.link_connected:
+                self.link_out.append(self.a)
+            else:
+                self._os_error()
+        elif name == "RecAByteIO":
+            if self.link_in:
+                self.a = self.link_in.pop(0)
+            else:
+                self._os_error()
         elif name == "PutS":
             self.output += self._string(self.r["hl"])
         elif name == "NewLine":
@@ -483,6 +554,11 @@ class Sim:
             x = self.read(self.sp + self.word_bytes, self.word_bytes)
             y = self.read(self.sp + 2 * self.word_bytes, self.word_bytes)
             self.texts.append((self._string(pointer), x, y))
+        elif name == "os.FontGetHeight":
+            self.r["hl"] = 12               # the CE's small font
+        elif name == "os.FontGetWidth":
+            # The small font is proportional; 7 pixels a character is close enough here.
+            self.r["hl"] = 7 * len(self._string(self.read(self.sp, self.word_bytes)))
         elif name == "boot.ClearVRAM":
             for address in [a for a in self.mem if VRAM <= a < VRAM + 153600]:
                 del self.mem[address]
@@ -496,7 +572,7 @@ class Sim:
             self._classic_border(1 if name == "DrawRectBorder" else 0)
         elif name == "GrBufClr":
             self.pixels.clear()
-        elif name in ("ClrScrn", "HomeUp", "DrawStatusBar", "RunIndicOff", "GrBufCpy", "SetNorm_Vals", "os.SetDrawFGColor"):
+        elif name in ("ClrScrn", "HomeUp", "DrawStatusBar", "RunIndicOff", "GrBufCpy", "SetNorm_Vals", "os.SetDrawFGColor", "os.SetDrawBGColor"):
             pass
         else:
             raise NotImplementedError(f"OS routine {name}")
