@@ -64,6 +64,27 @@ On CE, :py:func:`clear() <ti84.graphics.clear>` clears the whole screen, status 
 included, and :py:func:`end() <ti84.graphics.end>` brings back the home screen and
 its status bar.
 
+Scrolling
+---------
+
+On CE, :py:func:`scroll() <ti84.graphics.scroll>` moves the pixels already on the
+screen instead of redrawing them. It moves a rectangle up by ``dy`` rows, or down
+when ``dy`` is negative, and fills the strip it uncovers with ``fill``; the default
+of -1 leaves that strip as it was. Whole rows move at once, and a full-width area
+moves in a single copy, so it is much faster than clearing and drawing again, and
+it does not flicker.
+
+.. code-block:: python
+
+   from ti84 import graphics
+
+   # A log from y = 20 to the bottom: make room for one 10-pixel line at the bottom.
+   graphics.scroll(0, 20, 320, 220, 10, graphics.WHITE)
+
+The screen is not double-buffered: everything draws straight to the visible screen.
+Redraw only what changes, and use :py:func:`scroll() <ti84.graphics.scroll>` to
+move the rest.
+
 Screen size
 -----------
 

@@ -60,6 +60,24 @@ leaves what is behind.
    x = font.text(f, "Score: ", 4, 4, graphics.BLACK, graphics.WHITE)
    y = font.paragraph(f, "A long line wraps at the last space that fits.", 4, 20, 120)
 
+Text in arrays
+--------------
+
+Text that a program builds or receives, such as a chat message, lives in an int
+array of character codes. :py:func:`codes` draws ``count`` codes from a module-level
+array, starting at index ``start``, in one call, and returns the x after them.
+:py:func:`codes_width` measures them.
+
+.. code-block:: python
+
+   from ti84 import font, graphics
+
+   message = [0] * 40
+   length = 0
+   # ... fill message with codes, and set length ...
+   f = font.default()
+   x = font.codes(f, message, 0, length, 4, 100, graphics.BLACK)
+
 Font packs on the calculator
 ----------------------------
 
@@ -78,6 +96,9 @@ whatever its name, so a program can offer every font the user has sent:
            font.text(font.load(pack), name, 4, 4 + n * 12, graphics.BLACK)
        n += 1
        pack = font.find(n)
+
+To keep the name with other text, :py:func:`family_codes` copies it into an int
+array of character codes, for :py:func:`codes` to draw later.
 
 :py:func:`load`, :py:func:`count`, and :py:func:`by_style` take a pack from
 :py:func:`find`, or a pack's AppVar name as a string literal.
