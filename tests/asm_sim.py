@@ -20,6 +20,48 @@ LAYOUT = {"ce": {"code": 0x100000, "data": 0x200000, "stack": 0x3F0000, "heap": 
 CONSTANTS = {"ti.lcdBpp16": 0x2D, "ti.mpLcdCtrl": 0xE30018, "ti.AppVarObj": 0x15, "AppVarObj": 0x15, "YOffset": 0x9000,
              "ti.ProgObj": 5, "ti.ProtProgObj": 6, "plotSScreen": 0x9340,
              "ti.AppObj": 0x14, "ti.OP1": 0xD005F8, "ti.OP3": 0xD0060E}
+_FASMG_OPERATORS = {"or": "|", "and": "&", "xor": "^", "shl": "<<", "shr": ">>", "not": "~"}
+_TI_EQUATES: dict[str, str] = {}
+
+
+def ti_equate(name: str) -> int | None:
+    """The value of a ti84pceg.inc equate, such as mpUsbDevIsr; None if there is none."""
+    if not _TI_EQUATES:
+        from pathlib import Path
+
+        include = Path(__file__).resolve().parents[1] / "ti84asm/toolchain/include/ti84pceg.inc"
+        for line in include.read_text(encoding="utf-8", errors="replace").splitlines():
+            match = re.match(r"\?([\w.]+)\s*:=\s*([^;]+)", line)
+            if match:
+                _TI_EQUATES[match.group(1)] = match.group(2).strip()
+    text = _TI_EQUATES.get(name)
+    if text is None:
+        return None
+    return _evaluate(text, lambda term: ti_equate(term))
+
+
+def _evaluate(text: str, lookup) -> int:
+    """Evaluate a fasmg expression: numbers, names, + - * ( ), and or/and/xor/shl/shr/not."""
+    def term(match):
+        token = match.group()
+        if token in _FASMG_OPERATORS:
+            return _FASMG_OPERATORS[token]
+        if token.startswith("$"):
+            return str(int(token[1:], 16))
+        if re.fullmatch(r"[0-9][0-9A-Fa-f]*h", token):
+            return str(int(token[:-1], 16))
+        if token.isdigit():
+            return token
+        value = lookup(token)
+        if value is None:
+            raise KeyError(f"unknown symbol {token!r}")
+        return str(value)
+    expression = re.sub(r"\$[0-9A-Fa-f]+|[0-9][0-9A-Fa-f]*h\b|[A-Za-z_][\w.]*|\d+", term, text)
+    if not re.fullmatch(r"[\d\s+\-*()|&^<>~]+", expression):
+        raise KeyError(f"unsupported expression {text!r}")
+    return eval(expression)
+
+
 PAIRS = {"b": ("bc", 8), "c": ("bc", 0), "d": ("de", 8), "e": ("de", 0), "h": ("hl", 8), "l": ("hl", 0)}
 WIDE = {"hl", "de", "bc", "ix", "iy", "sp"}
 
@@ -121,6 +163,17 @@ class Sim:
         text = text.strip()
         if text in CONSTANTS:
             return CONSTANTS[text]
+        if text.startswith("ti.") and re.fullmatch(r"[\w.]+", text):
+            known = ti_equate(text[3:])
+            if known is not None:
+                return known
+        if re.search(r"\b(or|and|xor|shl|shr|not)\b", text):
+            def lookup(token):
+                try:
+                    return self.value(token)
+                except KeyError:
+                    return None
+            return _evaluate(text, lookup)
         if re.search(r"[*()]|(?<=\w)-", text):
             # Arithmetic such as 320*240*2-2: resolve each term, then evaluate digits and operators only.
             term = r"\$[0-9A-Fa-f]+|[0-9][0-9A-Fa-f]*h\b|[A-Za-z_][\w.]*|\d+"
@@ -144,6 +197,9 @@ class Sim:
     # --------------------------------------------------------------- memory
     def read(self, address: int, size: int = 1) -> int:
         address &= 0xFFFFFF
+        device = getattr(self, "device", None)
+        if device is not None and device.covers(address):
+            return sum(device.read(self, address + index) << (8 * index) for index in range(size))
         if self.target == "ce" and address & 0xFF0000 == 0xF50000:
             # Keypad registers repeat every 0x100 bytes. A requested scan finishes at
             # once, so the mode register reads as idle.
@@ -156,6 +212,11 @@ class Sim:
 
     def write(self, address: int, value: int, size: int = 1) -> None:
         address &= 0xFFFFFF
+        device = getattr(self, "device", None)
+        if device is not None and device.covers(address):
+            for index in range(size):
+                device.write(self, address + index, (value >> (8 * index)) & 0xFF)
+            return
         for index in range(size):
             self.mem[address + index] = (value >> (8 * index)) & 0xFF
 
@@ -293,6 +354,8 @@ class Sim:
             self.set(ops[0], self.pop())
         elif m == "ex":
             self.r["de"], self.r["hl"] = self.r["hl"], self.r["de"]
+        elif m == "ex.s":
+            self.r["de"], self.r["hl"] = self.r["hl"] & 0xFFFF, self.r["de"] & 0xFFFF
         elif m == "add" and ops[0] in ("hl", "ix"):
             result = self.r[ops[0]] + self.get(ops[1])
             self.C = result > self.mask
@@ -324,7 +387,19 @@ class Sim:
         elif m == "scf":
             self.C = True
         elif m == "bit":
-            self.Z = not (self.get(ops[1]) >> int(ops[0])) & 1
+            if ops[1].startswith("(iy"):
+                self.Z = True
+            else:
+                target = self.read(self.r["hl"]) if ops[1] == "(hl)" else self.get(ops[1])
+                self.Z = not (target >> self.value(ops[0])) & 1
+        elif m in ("set", "res") and not ops[1].startswith("(iy"):
+            bit = 1 << self.value(ops[0])
+            target = self.read(self.r["hl"]) if ops[1] == "(hl)" else self.get(ops[1])
+            target = target | bit if m == "set" else target & ~bit & 0xFF
+            if ops[1] == "(hl)":
+                self.write(self.r["hl"], target)
+            else:
+                self.set(ops[1], target)
         elif m in ("jp", "jr"):
             if ops == ["(hl)"]:
                 return self.r["hl"]
@@ -359,6 +434,12 @@ class Sim:
             if self._jump_to is not None:
                 target, self._jump_to = self._jump_to, None
                 return target
+        elif m == "ldi":
+            self.write(self.r["de"], self.read(self.r["hl"]))
+            self.r["hl"] = (self.r["hl"] + 1) & self.mask
+            self.r["de"] = (self.r["de"] + 1) & self.mask
+            self.r["bc"] = (self.r["bc"] - 1) & self.mask
+            self.PV = self.r["bc"] != 0
         elif m == "ldir":
             if not self.r["bc"]:
                 raise AssertionError("LDIR with BC = 0 copies the whole address space and wipes RAM")
@@ -398,6 +479,9 @@ class Sim:
                 self.set(dest, self.read(self.value(src[1:-1]), self.word_bytes))
             else:
                 self.set(dest, self.source(src))
+        elif dest == "a" and src == "i":
+            self.a = 0
+            self.PV = False
         elif dest in PAIRS or dest == "a":
             if src.startswith("(iy"):
                 self.set(dest, 0)
@@ -572,7 +656,8 @@ class Sim:
             self._classic_border(1 if name == "DrawRectBorder" else 0)
         elif name == "GrBufClr":
             self.pixels.clear()
-        elif name in ("ClrScrn", "HomeUp", "DrawStatusBar", "RunIndicOff", "GrBufCpy", "SetNorm_Vals", "os.SetDrawFGColor", "os.SetDrawBGColor"):
+        elif name in ("ClrScrn", "HomeUp", "DrawStatusBar", "RunIndicOff", "GrBufCpy", "SetNorm_Vals", "os.SetDrawFGColor", "os.SetDrawBGColor",
+                      "usb_DisableTimer", "Delay10ms"):
             pass
         else:
             raise NotImplementedError(f"OS routine {name}")

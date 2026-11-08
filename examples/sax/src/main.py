@@ -7,7 +7,7 @@ serial, one line per message:
     PC -> calc   "M <nick>\\t<text>"  chat message    "S <text>"  status    "R"  send hello
 
 Text is kept as character codes in integer arrays, and every fixed message is in
-tables.py. Fonts: the OS font, or the fonts of the SAXFONT font pack (y= cycles).
+tables.py. Fonts: TIpy's built-in 8-pixel font, or the fonts of the SAXFONT pack (y= cycles).
 
 Keys: letters type; alpha cycles abc/ABC/123; 2nd shows the on-screen keyboard;
 del erases; enter or graph sends; up/down scroll; y= changes font; mode changes
@@ -25,7 +25,6 @@ from tables import (FONT_BUILTIN, FONT_PACK, FONT_PACKED, HINT_CHAT, HINT_NICK, 
 # Layout
 SCREEN_W = 320
 SCREEN_H = 240
-CW = 8                  # the OS font's cell width; SAX-CE used an 8-pixel monospace font
 OSK_ROWS = 5
 WRAP_W = SCREEN_W - 2
 
@@ -94,7 +93,7 @@ hello_sent = 0
 dirty = 1
 nick_changed = 0
 entry_color = 0
-font_index = 0          # 0 is the OS font; n is font n - 1 of SAXFONT
+font_index = 0          # 0 is the built-in font; n is font n - 1 of SAXFONT
 font_handle = 0
 line_h = 14
 
@@ -102,29 +101,25 @@ line_h = 14
 # ---------------------------------------------------------------- text
 
 def apply_font():
+    """Use TIpy's built-in 8-pixel font, or font n - 1 of the SAXFONT pack."""
     global font_handle, line_h, font_index
     font_handle = 0
-    line_h = 14
     if font_index > 0:
         font_handle = font.load("SAXFONT", font_index - 1)
         if font_handle == 0:
             font_index = 0
-        else:
-            line_h = font.height(font_handle) + 1
+    if font_handle == 0:
+        font_handle = font.default()
+    line_h = font.height(font_handle) + 1
 
 
 def glyph_w(code):
-    if font_handle == 0:
-        return CW
     width = font.width(font_handle, code)
     return width if width else font.width(font_handle, 63)
 
 
 def draw_code(code, x, y, fg, bg):
-    """Draw one character; return its width. The OS font paints its own background."""
-    if font_handle == 0:
-        graphics.char(code, x, y, fg, bg)
-        return CW
+    """Draw one character over the background already filled in; return its width."""
     width = font.char(font_handle, code, x, y, fg)
     return width if width else font.char(font_handle, 63, x, y, fg)
 

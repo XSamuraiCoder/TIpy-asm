@@ -392,38 +392,88 @@ def _fill_rect(t: Target) -> str:
     if t.is_ce:
         return """
 _rt_fill_rect:
+    ; Write the first pixel, copy it across the first row with LDIR (an
+    ; overlapping copy repeats it), then copy that row into each row below.
     call _rt_vram
     ld (_rt_fill_ptr),hl
-    ld hl,(_rt_a2)
-    ld de,(_rt_a0)
-    or a
-    sbc hl,de
-    ld (_rt_fill_cols),hl
-    ld hl,(_rt_a3)
-    ld de,(_rt_a1)
-    or a
-    sbc hl,de
-    ld b,l
-_rt_fill_row:
-    push bc
-    ld hl,(_rt_fill_ptr)
     ld de,(_rt_a4)
-    ld bc,(_rt_fill_cols)
-_rt_fill_col:
     ld (hl),e
     inc hl
     ld (hl),d
-    inc hl
+    ld hl,(_rt_a2)
+    ld de,(_rt_a0)
+    or a,a
+    sbc hl,de
+    add hl,hl
+    ld (_rt_fill_cols),hl        ; bytes in a row
+    ld hl,(_rt_a3)
+    ld de,(_rt_a1)
+    or a,a
+    sbc hl,de
+    ld (_rt_fill_rows),hl
+    ld bc,(_rt_fill_cols)
+    dec bc
     dec bc
     ld a,b
     or a,c
-    jr nz,_rt_fill_col
+    jr z,_rt_fill_down
+    ld hl,(_rt_fill_ptr)
+    ld de,(_rt_fill_ptr)
+    inc de
+    inc de
+    ldir
+_rt_fill_down:
+    ld hl,(_rt_fill_rows)
+    dec hl
+    ld a,h
+    or a,l
+    ret z
+    ld (_rt_fill_rows),hl
+    ld hl,(_rt_fill_cols)
+    ld de,640
+    or a,a
+    sbc hl,de
+    jr nz,_rt_fill_row
+    ; Full-width rows follow each other in VRAM: one copy fills them all.
+    ld hl,(_rt_fill_rows)
+    add hl,hl
+    add hl,hl
+    add hl,hl
+    add hl,hl
+    add hl,hl
+    add hl,hl
+    add hl,hl                    ; rows * 128
+    push hl
+    add hl,hl
+    add hl,hl                    ; rows * 512
+    pop de
+    add hl,de                    ; rows * 640
+    push hl
+    pop bc
     ld hl,(_rt_fill_ptr)
     ld de,640
     add hl,de
+    ex de,hl
+    ld hl,(_rt_fill_ptr)
+    ldir
+    ret
+_rt_fill_row:
+    ld hl,(_rt_fill_ptr)
+    ld de,640
+    add hl,de
+    ex de,hl
+    ld hl,(_rt_fill_ptr)
+    ld bc,(_rt_fill_cols)
+    push de
+    ldir
+    pop hl
     ld (_rt_fill_ptr),hl
-    pop bc
-    djnz _rt_fill_row
+    ld hl,(_rt_fill_rows)
+    dec hl
+    ld (_rt_fill_rows),hl
+    ld a,h
+    or a,l
+    jr nz,_rt_fill_row
     ret
 """
     return """
@@ -458,28 +508,27 @@ def _blit_row(t: Target) -> str:
 _rt_blit_row:
     call _rt_vram
     ex de,hl
+    ld hl,(_rt_a3)
+    add hl,hl
+    push hl
+    pop bc                       ; BC = bytes to copy
     ld hl,(_rt_a2)
-    ld bc,(_rt_a3)
 _rt_blit_next:
     ld a,(hl)
     inc hl
-    push bc
-    ld c,a
     or a,(hl)
+    dec hl
     jr z,_rt_blit_clear
-    ld a,c
-    ld (de),a
-    inc de
-    ld a,(hl)
-    ld (de),a
-    inc de
-    jr _rt_blit_after
+    ldi
+    ldi
+    jp pe,_rt_blit_next          ; P/V stays set until BC reaches 0
+    ret
 _rt_blit_clear:
-    inc de
-    inc de
-_rt_blit_after:
     inc hl
-    pop bc
+    inc hl
+    inc de
+    inc de
+    dec bc
     dec bc
     ld a,b
     or a,c
@@ -772,7 +821,7 @@ RAW: dict[str, Raw] = {
     "_rt_vram": Raw(2, _vram),
     "_rt_pixel": Raw(3, _pixel, ("_rt_vram",)),
     "_rt_get_pixel": Raw(2, _get_pixel, ("_rt_peek16", "_rt_vram")),
-    "_rt_fill_rect": Raw(5, _fill_rect, ("_rt_vram",), ("_rt_fill_ptr", "_rt_fill_cols")),
+    "_rt_fill_rect": Raw(5, _fill_rect, ("_rt_vram",), ("_rt_fill_ptr", "_rt_fill_cols", "_rt_fill_rows")),
     "_rt_blit_row": Raw(4, _blit_row, ("_rt_vram",)),
     "_rt_peek16": Raw(1, _peek16),
     "_rt_delay": Raw(1, _delay),
@@ -790,36 +839,24 @@ RAW: dict[str, Raw] = {
 
 
 def _usb_raw() -> dict[str, Raw]:
-    """ti84.usb and ti84.serial helpers (see usbrt.py). The _rt_srl_ ones are CE, _rt_link_ classic."""
+    """ti84.usb and ti84.serial helpers (see usbrt.py): _rt_usb_ and _rt_srl_ on the CE, _rt_link_ on classic."""
     from . import usbrt as u
 
-    usb = ("_rt_usb_init", "_rt_usb_handler")
-    buffer = ("_rt_usb_buffer",)
-    serial = ("_rt_srl_begin", "_rt_srl_event", "_rt_srl_service", "_rt_usb_poll", *usb)
+    usb = ("_rt_usb_init",)
+    poll = ("_rt_usb_poll", "_rt_usb_setup_packet", *usb)
     return {
-        "_rt_usb_init": Raw(1, u.usb_init, ("_rt_usb_handler",)),
-        "_rt_usb_handler": Raw(0, u.usb_handler),
+        "_rt_usb_init": Raw(0, u.usb_init),
         "_rt_usb_end": Raw(0, u.usb_end, usb),
-        "_rt_usb_poll": Raw(0, u.usb_poll, usb),
-        "_rt_usb_find": Raw(1, u.usb_find),
-        "_rt_usb_role": Raw(0, u.usb_role, usb),
-        "_rt_usb_address": Raw(1, u.usb_address),
-        "_rt_usb_speed": Raw(1, u.usb_speed),
+        "_rt_usb_poll": Raw(0, u.usb_poll, poll),
+        "_rt_usb_setup_packet": Raw(0, u.usb_setup, usb),
+        "_rt_usb_send": Raw(2, u.usb_send, poll),
+        "_rt_usb_role": Raw(0, u.usb_role),
         "_rt_usb_buffer": Raw(0, u.usb_buffer),
-        "_rt_usb_descriptor_word": Raw(2, u.usb_descriptor_word, buffer),
-        "_rt_usb_configure": Raw(1, u.usb_configure, buffer),
-        "_rt_usb_transfer": Raw(5, u.usb_transfer, (*buffer, "_rt_find_var")),
-        "_rt_usb_control": Raw(1, u.usb_control, buffer),
-        "_rt_usb_set_setup": Raw(5, u.usb_setup, ("_rt_usb_control",)),
-        "_rt_usb_peek": Raw(1, u.usb_peek, buffer),
-        "_rt_usb_poke": Raw(2, u.usb_poke, buffer),
-        "_rt_srl_begin": Raw(1, u.srl_begin, serial),
-        "_rt_srl_event": Raw(0, u.srl_event, serial),
-        "_rt_srl_service": Raw(0, u.srl_service, serial),
-        "_rt_srl_connected": Raw(0, u.srl_connected, serial),
-        "_rt_srl_write": Raw(2, u.srl_write, serial),
-        "_rt_srl_write_byte": Raw(1, u.srl_write_byte, ("_rt_srl_write", *serial)),
-        "_rt_srl_read_byte": Raw(0, u.srl_read_byte, serial),
+        "_rt_usb_peek": Raw(1, u.usb_peek, ("_rt_usb_buffer",)),
+        "_rt_usb_poke": Raw(2, u.usb_poke, ("_rt_usb_buffer",)),
+        "_rt_srl_connected": Raw(0, u.srl_connected, poll),
+        "_rt_srl_read_byte": Raw(0, u.srl_read_byte, poll),
+        "_rt_srl_write_byte": Raw(1, u.srl_write_byte, ("_rt_usb_send", *poll)),
         "_rt_link_send": Raw(0, u.link_send),
         "_rt_link_write": Raw(2, u.link_write, ("_rt_link_send",)),
         "_rt_link_write_byte": Raw(1, u.link_write_byte, ("_rt_link_send",)),
@@ -828,6 +865,282 @@ def _usb_raw() -> dict[str, Raw]:
 
 
 RAW.update(_usb_raw())
+
+
+def _font_glyph(t: Target) -> str:
+    # Draw character _rt_a1 of the FontLibC font at _rt_a0 at pixel (_rt_a2, _rt_a3)
+    # in color _rt_a4, leaving the background; HL = its width, or 0 if the font lacks it.
+    # Font: +1 height, +2 glyph count (0 = 256), +3 first glyph, +4 widths offset,
+    # +7 bitmap table offset, +11 space above. Each bitmap entry, plus 3, minus the
+    # bytes per row, gives the first row; each row's bytes run right to left.
+    if not t.is_ce:
+        return ""
+    return """
+_rt_font_glyph:
+    push ix
+    ld hl,(_rt_a0)
+    ld (_rt_fg_font),hl
+    ld de,0
+    or a,a
+    sbc hl,de
+    jp z,_rt_fg_none
+    ld ix,(_rt_fg_font)
+    ld hl,(_rt_a1)
+    ld de,256
+    or a,a
+    sbc hl,de
+    jp nc,_rt_fg_none
+    ld a,(_rt_a1)
+    sub a,(ix+3)
+    jp c,_rt_fg_none
+    ld c,a
+    ld a,(ix+2)
+    or a,a
+    jp z,_rt_fg_in_range
+    ld a,c
+    cp a,(ix+2)
+    jp nc,_rt_fg_none
+_rt_fg_in_range:
+    ld de,0
+    ld e,c
+    ld (_rt_fg_index),de
+    ld hl,(ix+4)
+    ld de,(_rt_fg_font)
+    add hl,de
+    ld de,(_rt_fg_index)
+    add hl,de
+    ld a,(hl)
+    ld (_rt_fg_width),a
+    or a,a
+    jp z,_rt_fg_none
+    add a,7
+    srl a
+    srl a
+    srl a
+    ld (_rt_fg_columns),a
+    ld hl,(ix+7)
+    ld de,(_rt_fg_font)
+    add hl,de
+    ld de,(_rt_fg_index)
+    add hl,de
+    add hl,de
+    ld de,0
+    ld e,(hl)
+    inc hl
+    ld d,(hl)
+    ld hl,(_rt_fg_font)
+    add hl,de
+    ld de,2                      ; + 3 - columns, then + columns - 1 for the row's last byte
+    add hl,de
+    ld (_rt_fg_last),hl
+    ld hl,(_rt_a2)
+    ld (_rt_fg_x),hl
+    ld hl,(_rt_a4)
+    ld (_rt_fg_color),hl
+    ld hl,(_rt_a3)
+    ld de,0
+    ld e,(ix+11)
+    add hl,de
+    ld (_rt_fg_y),hl
+    ld a,(ix+1)
+    ld (_rt_fg_rows),a
+_rt_fg_row:
+    ld a,(_rt_fg_rows)
+    or a,a
+    jp z,_rt_fg_done
+    ld hl,(_rt_fg_y)
+    ld de,240
+    or a,a
+    sbc hl,de
+    jp nc,_rt_fg_next_row        ; above or below the screen
+    ld hl,0
+    ld (_rt_a0),hl
+    ld hl,(_rt_fg_y)
+    ld (_rt_a1),hl
+    call _rt_vram
+    ld (_rt_fg_base),hl
+    ld hl,(_rt_fg_last)
+    ld (_rt_fg_ptr),hl
+    ld hl,(_rt_fg_x)
+    ld (_rt_fg_px),hl
+    ld a,(_rt_fg_width)
+    ld b,a
+    ld c,0
+_rt_fg_pixel:
+    ld a,c
+    or a,a
+    jp nz,_rt_fg_have_bits
+    ld hl,(_rt_fg_ptr)
+    ld a,(hl)
+    dec hl
+    ld (_rt_fg_ptr),hl
+    ld (_rt_fg_bits),a
+    ld c,$80
+_rt_fg_have_bits:
+    ld a,(_rt_fg_bits)
+    and a,c
+    jp z,_rt_fg_skip
+    ld hl,(_rt_fg_px)
+    ld de,320
+    or a,a
+    sbc hl,de
+    jp nc,_rt_fg_skip            ; left or right of the screen
+    ld hl,(_rt_fg_px)
+    add hl,hl
+    ld de,(_rt_fg_base)
+    add hl,de
+    ld de,(_rt_fg_color)
+    ld (hl),e
+    inc hl
+    ld (hl),d
+_rt_fg_skip:
+    ld hl,(_rt_fg_px)
+    inc hl
+    ld (_rt_fg_px),hl
+    srl c
+    djnz _rt_fg_pixel
+_rt_fg_next_row:
+    ld hl,(_rt_fg_last)
+    ld de,0
+    ld a,(_rt_fg_columns)
+    ld e,a
+    add hl,de
+    ld (_rt_fg_last),hl
+    ld hl,(_rt_fg_y)
+    inc hl
+    ld (_rt_fg_y),hl
+    ld hl,_rt_fg_rows
+    dec (hl)
+    jp _rt_fg_row
+_rt_fg_done:
+    pop ix
+    or a,a
+    sbc hl,hl
+    ld a,(_rt_fg_width)
+    ld l,a
+    ret
+_rt_fg_none:
+    pop ix
+    or a,a
+    sbc hl,hl
+    ret
+"""
+
+
+def _line(t: Target) -> str:
+    # Bresenham's line from (_rt_a0, _rt_a1) to (_rt_a2, _rt_a3) in color _rt_a4,
+    # skipping the pixels off the screen.
+    if not t.is_ce:
+        return ""
+    return """
+_rt_line:
+    ld hl,(_rt_a0)
+    ld (_rt_ln_x),hl
+    ld hl,(_rt_a1)
+    ld (_rt_ln_y),hl
+    ld hl,(_rt_a2)
+    ld de,(_rt_a0)
+    or a,a
+    sbc hl,de
+    ld bc,1
+    jp p,_rt_ln_dx_known
+    ex de,hl
+    or a,a
+    sbc hl,hl
+    sbc hl,de
+    ld bc,-1
+_rt_ln_dx_known:
+    ld (_rt_ln_dx),hl            ; |x2 - x1|
+    ld (_rt_ln_sx),bc
+    ld hl,(_rt_a3)
+    ld de,(_rt_a1)
+    or a,a
+    sbc hl,de
+    ld bc,-1
+    jp m,_rt_ln_dy_known
+    ex de,hl
+    or a,a
+    sbc hl,hl
+    sbc hl,de
+    ld bc,1
+_rt_ln_dy_known:
+    ld (_rt_ln_dy),hl            ; -|y2 - y1|
+    ld (_rt_ln_sy),bc
+    ld de,(_rt_ln_dx)
+    add hl,de
+    ld (_rt_ln_err),hl
+_rt_ln_loop:
+    ld hl,(_rt_ln_x)
+    ld de,320
+    or a,a
+    sbc hl,de
+    jr nc,_rt_ln_moved
+    ld hl,(_rt_ln_y)
+    ld de,240
+    or a,a
+    sbc hl,de
+    jr nc,_rt_ln_moved
+    ld hl,(_rt_ln_x)
+    ld (_rt_a0),hl
+    ld hl,(_rt_ln_y)
+    ld (_rt_a1),hl
+    call _rt_vram
+    ld de,(_rt_a4)
+    ld (hl),e
+    inc hl
+    ld (hl),d
+_rt_ln_moved:
+    ld hl,(_rt_ln_x)
+    ld de,(_rt_a2)
+    or a,a
+    sbc hl,de
+    jr nz,_rt_ln_step
+    ld hl,(_rt_ln_y)
+    ld de,(_rt_a3)
+    or a,a
+    sbc hl,de
+    ret z
+_rt_ln_step:
+    ld hl,(_rt_ln_err)
+    add hl,hl
+    ld (_rt_ln_e2),hl
+    ld de,(_rt_ln_dy)
+    or a,a
+    sbc hl,de
+    jp m,_rt_ln_no_x             ; e2 < dy
+    ld hl,(_rt_ln_err)
+    add hl,de
+    ld (_rt_ln_err),hl
+    ld hl,(_rt_ln_x)
+    ld de,(_rt_ln_sx)
+    add hl,de
+    ld (_rt_ln_x),hl
+_rt_ln_no_x:
+    ld hl,(_rt_ln_dx)
+    ld de,(_rt_ln_e2)
+    or a,a
+    sbc hl,de
+    jp m,_rt_ln_loop             ; e2 > dx
+    ld hl,(_rt_ln_err)
+    ld de,(_rt_ln_dx)
+    add hl,de
+    ld (_rt_ln_err),hl
+    ld hl,(_rt_ln_y)
+    ld de,(_rt_ln_sy)
+    add hl,de
+    ld (_rt_ln_y),hl
+    jp _rt_ln_loop
+"""
+
+
+RAW["_rt_line"] = Raw(5, _line, ("_rt_vram",), ("_rt_ln_x", "_rt_ln_y", "_rt_ln_dx", "_rt_ln_dy", "_rt_ln_sx",
+                                              "_rt_ln_sy", "_rt_ln_err", "_rt_ln_e2"))
+
+
+RAW["_rt_font_glyph"] = Raw(5, _font_glyph, ("_rt_vram",),
+                            ("_rt_fg_font", "_rt_fg_index", "_rt_fg_width", "_rt_fg_columns", "_rt_fg_last",
+                             "_rt_fg_x", "_rt_fg_y", "_rt_fg_color", "_rt_fg_rows", "_rt_fg_base", "_rt_fg_ptr",
+                             "_rt_fg_px", "_rt_fg_bits"))
 
 # sin(0..90 degrees) * 256, matching the Flash App runtime's table.
 SIN_TABLE = (
@@ -1105,35 +1418,6 @@ def _tipy_font_width(font, code):
     if index < 0:
         return 0
     return _tipy_byte(font + _tipy_word24(font + 4) + index)
-
-def _tipy_font_char(font, code, x, y, color):
-    # Draw one glyph's set pixels; return its width.
-    if font == 0:
-        return 0
-    index = _tipy_font_glyph(font, code)
-    if index < 0:
-        return 0
-    width = _tipy_byte(font + _tipy_word24(font + 4) + index)
-    height = _tipy_byte(font + 1)
-    columns = (width + 7) >> 3
-    # Each glyph's entry points just past its first row; rows store their bytes right to left.
-    rows = font + _rt_peek16(font + _tipy_word24(font + 7) + index * 2) + 3 - columns
-    top = y + _tipy_byte(font + 11)
-    row = 0
-    while row < height:
-        py = top + row
-        if 0 <= py < SCREEN_H:
-            last = rows + row * columns + columns - 1
-            px = 0
-            while px < width:
-                bits = _tipy_byte(last - (px >> 3))
-                if bits & (128 >> (px & 7)):
-                    sx = x + px
-                    if 0 <= sx < SCREEN_W:
-                        _rt_pixel(sx, py, color)
-                px += 1
-        row += 1
-    return width
 
 def _tipy_sprite_width(sprite):
     return _rt_peek16(sprite) if sprite else 0

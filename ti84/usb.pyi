@@ -1,4 +1,4 @@
-"""USB on the TI-84 Plus CE, through CEdev's usbdrvce library. Needs LibLoad on the calculator."""
+"""USB on the TI-84 Plus CE with TIpy's own driver (no clibs). Host mode is not supported yet."""
 
 HOST: int
 DEVICE: int

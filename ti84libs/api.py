@@ -30,7 +30,7 @@ def _m(signature: str, doc: str, example: str = "", targets: tuple[str, ...] = B
 
 _TEXT_NOTE = "the classic target draws text from literal coordinates; use graphics.text with constants"
 _FONT_NOTE = "font packs draw on the CE; the classic target draws literal text with graphics.text"
-_USB_NOTE = "CE USB uses CEdev's usbdrvce library; on classic, ti84.serial talks over the link port"
+_USB_NOTE = "USB is the CE's; on classic, ti84.serial talks over the link port"
 
 API: dict[str, dict[str, Method]] = {
     "graphics": {
@@ -159,6 +159,8 @@ API: dict[str, dict[str, Method]] = {
                     "the classic screen has no RGB colors"),
     },
     "font": {
+        "default": _m("default() -> int", "TIpy's built-in 8-pixel font, built into the program: no AppVar "
+                      "or clibs needed.", "z = font.default()", (CE,), True, _FONT_NOTE),
         "load": _m("load(name, index=0) -> int", "Font index of a font pack AppVar, such as one built by a font "
                    "asset; 0 if it is missing.", "z = font.load('SAXFONT')", (CE,), True, _FONT_NOTE),
         "count": _m("count(name) -> int", "How many fonts a font pack AppVar holds; 0 if it is not one.",
@@ -172,7 +174,7 @@ API: dict[str, dict[str, Method]] = {
                    _FONT_NOTE),
     },
     "usb": {
-        "begin": _m("begin() -> int", "Start the USB driver, as host or device; 0 on success, else a USB error.",
+        "begin": _m("begin() -> int", "Start TIpy's USB driver as a device (no clibs needed); 0 on success.",
                     "z = usb.begin()", (CE,), True, _USB_NOTE),
         "end": _m("end()", "Stop the USB driver. A program that started it also stops it when it exits.",
                   "usb.end()", (CE,), note=_USB_NOTE),
@@ -182,27 +184,23 @@ API: dict[str, dict[str, Method]] = {
                    "z = usb.role()", (CE,), True, _USB_NOTE),
         "last_event": _m("last_event() -> int", "The latest USB event, such as usb.DEVICE_ENABLED; -1 before any.",
                          "z = usb.last_event()", (CE,), True, _USB_NOTE),
-        "find": _m("find(previous=0) -> int", "The next ready device after previous (not hubs); 0 when there "
-                   "are no more.", "z = usb.find(x)", (CE,), True, _USB_NOTE),
-        "connected": _m("connected() -> bool", "Whether a device is ready to use, or a computer has set the "
-                        "calculator up.", "z = usb.connected()", (CE,), True, _USB_NOTE),
-        "vendor_id": _m("vendor_id(device) -> int", "The device's USB vendor ID, or -1 if it cannot be read.",
+        "find": _m("find(previous=0) -> int", "Host mode is not supported yet, so this is always 0.", "z = usb.find(x)", (CE,), True, _USB_NOTE),
+        "connected": _m("connected() -> bool", "Whether a computer has set the calculator up.", "z = usb.connected()", (CE,), True, _USB_NOTE),
+        "vendor_id": _m("vendor_id(device) -> int", "Host mode is not supported yet: -1.",
                         "z = usb.vendor_id(x)", (CE,), True, _USB_NOTE),
-        "product_id": _m("product_id(device) -> int", "The device's USB product ID, or -1 if it cannot be read.",
+        "product_id": _m("product_id(device) -> int", "Host mode is not supported yet: -1.",
                          "z = usb.product_id(x)", (CE,), True, _USB_NOTE),
-        "address": _m("address(device) -> int", "The device's USB address.", "z = usb.address(x)", (CE,), True,
+        "address": _m("address(device) -> int", "Host mode is not supported yet: -1.", "z = usb.address(x)", (CE,), True,
                       _USB_NOTE),
-        "speed": _m("speed(device) -> int", "usb.FULL_SPEED, usb.LOW_SPEED, or -1 if unknown.",
+        "speed": _m("speed(device) -> int", "Host mode is not supported yet: -1.",
                     "z = usb.speed(x)", (CE,), True, _USB_NOTE),
-        "configure": _m("configure(device) -> int", "Select the device's first configuration, which a host "
-                        "must do before using its endpoints; 0 or a USB error.", "z = usb.configure(x)", (CE,),
+        "configure": _m("configure(device) -> int", "Host mode is not supported yet: 6, the not-supported error.", "z = usb.configure(x)", (CE,),
                         True, _USB_NOTE),
         "transfer": _m("transfer(device, endpoint, name, offset, length) -> int",
-                       "Send or receive length bytes at offset in a RAM AppVar through an endpoint address "
-                       "(0x80 and up receive); the bytes moved, or -1.",
+                       "Host mode is not supported yet: -1.",
                        "z = usb.transfer(x, 0x81, 'BUF', 0, y)", (CE,), True, _USB_NOTE),
         "control": _m("control(device, request_type, request, value, index, length) -> int",
-                      "A control transfer, with its data in the 256-byte USB buffer; the bytes moved, or -1.",
+                      "Host mode is not supported yet: -1.",
                       "z = usb.control(x, 0x80, 6, 0x100, 0, 18)", (CE,), True, _USB_NOTE),
         "buffer_get": _m("buffer_get(index) -> int", "Byte index (0-255) of the USB buffer.",
                          "z = usb.buffer_get(x)", (CE,), True, _USB_NOTE),
@@ -210,8 +208,8 @@ API: dict[str, dict[str, Method]] = {
                          "usb.buffer_set(x, y)", (CE,), note=_USB_NOTE),
     },
     "serial": {
-        "begin": _m("begin(baud=9600) -> int", "Get ready to send and receive; 0 on success. On CE this starts "
-                    "USB serial, at baud when the calculator is the host.", "z = serial.begin()", returns=True),
+        "begin": _m("begin(baud=9600) -> int", "Get ready to send and receive; 0 on success. On CE the calculator becomes a USB serial "
+                    "port (no clibs needed); the computer sets the baud rate.", "z = serial.begin()", returns=True),
         "end": _m("end()", "Stop serial. On CE, a program that started it also stops it when it exits.",
                   "serial.end()"),
         "connected": _m("connected() -> bool", "Whether a serial device is ready. On CE, this also handles USB "

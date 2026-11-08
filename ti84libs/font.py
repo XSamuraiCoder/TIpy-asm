@@ -15,13 +15,24 @@ from ti84asm.runtime import LabelRef
 from .graphics import _color, _default_color
 from .storage import appvar_label
 
-_ARITY = {"load": (1, 2), "count": (1,), "height": (1,), "width": (2,), "char": (4, 5)}
+_ARITY = {"load": (1, 2), "count": (1,), "height": (1,), "width": (2,), "char": (4, 5), "default": (0,)}
 
 
 def _name(compiler, node: ast.expr, method: str) -> LabelRef:
     if not isinstance(node, ast.Constant) or not isinstance(node.value, str):
         raise CompileError(f"font.{method}() takes the font pack's AppVar name as a string literal")
     return LabelRef(appvar_label(compiler, node.value.upper()))
+
+
+def default_font_label(compiler) -> str:
+    from .fontdata import font_bytes
+
+    cached = getattr(compiler, "_default_font", None)
+    if cached is None or cached[0] is not compiler.data:
+        label = compiler.label("font_default")
+        compiler.data_bytes(label, list(font_bytes()))
+        compiler._default_font = (compiler.data, label)
+    return compiler._default_font[1]
 
 
 def emit_call(compiler, node: ast.Call) -> None:
@@ -34,7 +45,10 @@ def emit_call(compiler, node: ast.Call) -> None:
             raise CompileError(f"font.{method}() uses positional arguments")
     if len(args) not in _ARITY[method]:
         raise CompileError(f"font.{method}() takes {' or '.join(map(str, _ARITY[method]))} argument(s)")
-    if method == "load":
+    if method == "default":
+        # The built-in font goes in the program once, so it needs no AppVar.
+        compiler.emit(f"    ld hl,{default_font_label(compiler)}")
+    elif method == "load":
         compiler.call_function("_tipy_font_load", [_name(compiler, args[0], method), *(args[1:] or [ast.Constant(0)])])
     elif method == "count":
         compiler.call_function("_tipy_font_count", [_name(compiler, args[0], method)])
@@ -42,6 +56,6 @@ def emit_call(compiler, node: ast.Call) -> None:
         color = args[4] if len(args) == 5 else ast.Constant(_default_color(compiler))
         if compiler.constant_integer(color) is not None:
             color = ast.Constant(_color(compiler, color, "font color"))
-        compiler.call_function("_tipy_font_char", [*args[:4], color])
+        compiler.call_raw("_rt_font_glyph", [*args[:4], color])
     else:
         compiler.call_function(f"_tipy_font_{method}", args)

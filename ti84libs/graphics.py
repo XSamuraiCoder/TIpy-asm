@@ -701,7 +701,10 @@ def _emit_shape(compiler, node: ast.Call, method: str) -> None:
         values, color_node = _bind(compiler, node, "x1", "y1", "x2", "y2")
         known, color = _all_constant(compiler, values), _constant_color(compiler, color_node)
         if known is None or color is None:
-            compiler.call_function("_tipy_line", [*values, color_node])
+            if compiler.target == "ce":
+                compiler.call_raw("_rt_line", [*values, color_node])
+            else:
+                compiler.call_function("_tipy_line", [*values, color_node])
             return
         x1, y1, x2, y2 = known
         if any(not (0 <= x < screen_width and 0 <= y < screen_height) for x, y in ((x1, y1), (x2, y2))):

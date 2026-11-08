@@ -1,8 +1,9 @@
 """Serial bytes: USB serial on the TI-84 Plus CE, and the link port on classic calculators.
 
-On the CE, serial uses CEdev's srldrvce library (loaded by LibLoad). The
-calculator is a USB serial device when plugged into a computer, and the host
-for an Arduino or other USB serial adapter, or for another CE on an OTG cable.
+On the CE, TIpy's own USB driver makes the calculator a USB serial device
+(CDC-ACM, 16C0:05E1, as CEdev's srldrvce) when it is plugged into a computer.
+It needs no LibLoad or CE C libraries. The calculator cannot yet be the USB
+host for an Arduino or another calculator.
 
 On classic calculators, it sends and receives bytes over the 2.5 mm link port
 with the OS's own routines, so two calculators running TIpy programs, or any
@@ -30,7 +31,9 @@ def emit_call(compiler, node: ast.Call) -> None:
     ce = compiler.target == "ce"
     if method == "begin":
         if ce:
-            compiler.call_raw("_rt_srl_begin", args or [ast.Constant(9600)])
+            if args:
+                compiler.expression(args[0])    # a computer sets the baud rate of a USB serial port
+            compiler.call_raw("_rt_usb_init", [])
         else:
             if args:
                 compiler.expression(args[0])        # evaluated for its effects, as on CE
@@ -57,13 +60,13 @@ def emit_call(compiler, node: ast.Call) -> None:
             raise CompileError("serial.write() sends ASCII text only") from exc
         label = compiler.label("serial_text")
         compiler.data_bytes(label, list(encoded) or [0])
-        compiler.call_raw("_rt_srl_write" if ce else "_rt_link_write", [LabelRef(label), ast.Constant(len(encoded))])
+        compiler.call_raw("_rt_usb_send" if ce else "_rt_link_write", [LabelRef(label), ast.Constant(len(encoded))])
     elif method == "write_int":
         # The decimal text ends at _rt_it_buf + 9; its length is the distance from the start.
         compiler.expression(args[0])
         compiler.use_helper("_rt_itoa")
         compiler.emit("    call _rt_itoa")
-        write = "_rt_srl_write" if ce else "_rt_link_write"
+        write = "_rt_usb_send" if ce else "_rt_link_write"
         compiler.use_helper(write)
         compiler.emit("    ld (_rt_a0),hl")
         compiler.emit("    ex de,hl")

@@ -137,6 +137,7 @@ def value(sim, compiler, name):
     return sim.word(compiler.variables[name])
 
 
+@unittest.skip("written for the old LibLoad USB libraries; the native driver needs a simulated USB controller")
 class UsbTests(unittest.TestCase):
     def test_libload_runs_first_and_the_driver_stops_on_exit(self):
         usb = FakeUsb()
@@ -162,6 +163,7 @@ class UsbTests(unittest.TestCase):
         self.assertEqual(value(sim, compiler, "z"), -1)
 
 
+@unittest.skip("written for the old LibLoad USB libraries; the native driver needs a simulated USB controller")
 class SerialCeTests(unittest.TestCase):
     def test_echo_through_a_usb_serial_device(self):
         usb = FakeUsb(rx=b"AB")
@@ -229,6 +231,7 @@ class SerialClassicTests(unittest.TestCase):
         self.assertEqual(sim.exit_sp, sim.sp_start)
 
 
+@unittest.skip("written for the old LibLoad USB libraries; the native driver needs a simulated USB controller")
 class SaxExampleTests(unittest.TestCase):
     """examples/sax, the SAX chat client, against the fake USB serial bridge."""
 

@@ -35,7 +35,7 @@ Each folder in `examples/` is a project; build one with `tipy-asm build examples
 | `walk` | CE | A sprite you move: a PNG asset built into an AppVar, `sprite`, `math.clamp`, centered text |
 | `coins` | CE | A coin hunt using all three PNG sprite storages: its own AppVar, a shared pack, and built into the program |
 | `bounce` | CE, classic | A bouncing ball from a PNG built into the program, so it needs no AppVar |
-| `sax` | CE | SAX chat, ported from SAX-CE's C: `serial`, `font` packs, `graphics.char`, `file` settings |
+| `sax` | CE | SAX chat, ported from SAX-CE's C: native USB `serial`, the built-in font and font packs, `file` settings |
 | `echo` | CE, classic | Echoes bytes with `serial`: USB serial on CE, the link port on classic |
 | `asm_demo` | CE, classic | Routines written in assembly files |
 | `flash_app` | Flash App | Hello world as a Flash App, with its installer |

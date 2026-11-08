@@ -63,6 +63,28 @@ class FontTests(unittest.TestCase):
                     self.assertEqual(got if got == RED else 0, expected, (glyph, x, y))
             left += width + 1
 
+    def test_the_built_in_font_draws_its_glyphs(self):
+        from ti84libs.fontdata import glyph_rows
+
+        text = "Hi, gjy!"
+        codes = ", ".join(str(ord(ch)) for ch in text)
+        source = ("from ti84 import font, graphics\nTEXT = (" + codes + ")\n"
+                  "f = font.default()\nx = 2\nfor i in range(" + str(len(text)) + "):\n"
+                  "    x += font.char(f, TEXT[i], x, 5, graphics.RED)\nh = font.height(f)\n")
+        compiler = Compiler("T", "ce")
+        sim = Sim(compiler.compile(source), "ce")
+        sim.run(30_000_000)
+        self.assertEqual(self.value(sim, compiler, "h"), 9)
+        left = 2
+        for ch in text:
+            rows = glyph_rows(ch)
+            for y, row in enumerate(rows):
+                for x, ink in enumerate(row + "."):
+                    got = sim.vram(left + x, 5 + y)
+                    self.assertEqual(got == RED, ink == "#", (ch, x, y))
+            left += len(rows[0]) + 1
+        self.assertEqual(self.value(sim, compiler, "x"), left)
+
     def test_a_missing_or_wrong_appvar_is_zero(self):
         source = "from ti84 import font\na = font.load('NOPE')\nb = font.count('FONTS')\nc = font.char(0, 65, 1, 1)\n"
         sim, compiler = self.run_program(source, b"NOTAPACK" + bytes(8))
