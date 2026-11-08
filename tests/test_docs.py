@@ -19,6 +19,7 @@ from ti84asm.errors import CompileError
 from ti84libs.api import API, flash_available
 
 DOCS = Path(__file__).resolve().parent.parent / "docs"
+SPRITES_MODULE = "COIN = ((0x1234, None), (None, 0x1234))\nGRASS = 0\nFLOWER = 1"
 
 
 class CoverageTests(unittest.TestCase):
@@ -76,6 +77,8 @@ class SnippetTests(unittest.TestCase):
                 with self.subTest(page=page.name, code=code):
                     # Skip a converter sample and an import of files only a real project has.
                     if "TODO(convert)" not in code and "from settings" not in code:
+                        # Stand in for the sprites module that a project's assets generate.
+                        code = re.sub(r"^from sprites import .*$", SPRITES_MODULE, code, flags=re.M)
                         self.compile_snippet(code, folder)
                         checked += 1
         self.assertGreater(checked, 10)

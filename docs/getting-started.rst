@@ -68,15 +68,52 @@ point at your own file and line, and suggest a fix where they can:
    src/main.py:12: error: graphics has no method pixl(); did you mean graphics.pixel()? run 'tipy-asm api graphics' to list them
        graphics.pixl(x, y)
 
-A complete example
-------------------
+Examples
+--------
 
-``examples/catch`` in the repository is a small game that uses functions, several
-source files, arrays, random numbers, held keys, and a saved high score:
+Each folder in ``examples/`` in the repository is a project. Build one with:
 
 .. code-block:: console
 
    tipy-asm build examples/catch --target ce
+
+.. list-table::
+   :header-rows: 1
+   :widths: 15 20 65
+
+   * - Example
+     - Targets
+     - Shows
+   * - ``catch``
+     - CE, classic
+     - A small game: functions, several source files, arrays, random numbers, held
+       keys, and a high score saved with :doc:`storage <libraries/storage>`.
+   * - ``star``
+     - CE, classic
+     - A spinning star: :doc:`math <libraries/math>` ``sin`` and ``cos``, lines and
+       circles, a color from :doc:`color <libraries/color>`, and held keys.
+   * - ``dice``
+     - CE, classic
+     - Dice rolls: :doc:`random <libraries/random>`, ``keyboard.read()``, and 16-bit
+       counters kept between runs with :doc:`file <libraries/file>`.
+   * - ``walk``
+     - CE
+     - A sprite you move with the arrow keys: a PNG built into an AppVar by
+       ``[[tool.tipy.assets]]``, drawn with :doc:`sprite <libraries/sprite>`. Needs
+       Pillow to build.
+   * - ``coins``
+     - CE
+     - A coin hunt that stores PNG sprites all three ways: in its own AppVar, in a
+       shared pack, and built into the program. See :doc:`projects`.
+   * - ``bounce``
+     - CE, classic
+     - A bouncing ball from a PNG built into the program, so it needs no AppVar.
+   * - ``asm_demo``
+     - CE, classic
+     - Routines written in :doc:`assembly files <assembly>`.
+   * - ``flash_app``
+     - Flash App
+     - Hello world as a :doc:`Flash App <flash-apps>`, with its installer.
 
 Next, read about :doc:`the language <language>`, or browse
 :doc:`the library methods <libraries/index>`.

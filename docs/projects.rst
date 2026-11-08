@@ -72,9 +72,9 @@ settings`` is not supported.
 Assets
 ------
 
-Each ``[[tool.tipy.assets]]`` table converts one file into an AppVar in ``bindir``.
-Every build converts the assets that are out of date, and ``--force`` converts them
-all.
+Each ``[[tool.tipy.assets]]`` table converts one file for your program. Most become
+an AppVar in ``bindir``. Every build converts the assets that are out of date, and
+``--force`` converts them all.
 
 .. code-block:: toml
 
@@ -98,16 +98,86 @@ all.
        file's suffix, and images default to ``sprite``.
    * - ``mode``
      - ``rgb565`` or ``palette``, for the ``image`` kind.
+   * - ``storage``
+     - For sprites: ``appvar`` (the default), ``program``, or ``pack``. See below.
+   * - ``pack``
+     - For ``storage = "pack"``: the shared AppVar's name. Setting it implies
+       ``storage = "pack"``.
+   * - ``module``
+     - For ``program`` and ``pack``: the generated module, ``sprites`` by default.
 
-Send each ``.8xv`` to the calculator along with the program. A ``sprite`` asset is
-drawn with :doc:`the sprite library <libraries/sprite>`:
+Send each ``.8xv`` to the calculator along with the program.
+
+Where PNG sprites go
+~~~~~~~~~~~~~~~~~~~~
+
+A sprite asset's ``storage`` chooses where its pixels end up. One project can use all
+three; ``examples/coins`` in the repository does.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 15 15 70
+
+   * - ``storage``
+     - Targets
+     - What you get
+   * - ``appvar``
+     - CE
+     - Its own AppVar, named ``name``. Load it with
+       ``sprite.load("HERO")`` and draw it with :doc:`the sprite library
+       <libraries/sprite>`. Keeps the program small.
+   * - ``program``
+     - CE, classic
+     - Built into the program as a pixel constant, drawn with
+       :py:func:`graphics.sprite() <ti84.graphics.sprite>`. Nothing extra to send.
+       On classic, colors become black and white.
+   * - ``pack``
+     - CE
+     - Shares one AppVar, named ``pack``, with the other sprites of that pack, in the
+       order they are listed. Load one with ``sprite.load("TILES", GRASS)``. One file
+       to send for many sprites.
+
+.. code-block:: toml
+
+   [[tool.tipy.assets]]
+   source = "assets/hero.png"
+   name = "HERO"                # storage = "appvar" is the default
+
+   [[tool.tipy.assets]]
+   source = "assets/coin.png"
+   name = "COIN"
+   storage = "program"
+
+   [[tool.tipy.assets]]
+   source = "assets/grass.png"
+   name = "GRASS"
+   pack = "TILES"               # implies storage = "pack"
+
+   [[tool.tipy.assets]]
+   source = "assets/flower.png"
+   name = "FLOWER"
+   pack = "TILES"
+
+For ``program`` and ``pack`` sprites, ``name`` names a constant, which can be longer
+than 8 characters. ``build``, ``check``, ``compile``, and ``flash-app`` write
+``sprites.py`` next to your main file before compiling. It holds each ``program``
+sprite's pixels, and each ``pack`` sprite's index in its pack. Import from it:
 
 .. code-block:: python
 
-   from ti84 import sprite
+   from ti84 import graphics, sprite
+   from sprites import COIN, FLOWER, GRASS
 
    hero = sprite.load("HERO")
+   grass = sprite.load("TILES", GRASS)
+   flower = sprite.load("TILES", FLOWER)
    sprite.draw(hero, 40, 30)
+   sprite.draw(grass, 0, 16)
+   graphics.sprite(COIN, 100, 50)
+
+The generated module is rewritten whenever the images or settings change, so do not
+edit it, and you can leave it out of version control. A file of that name that
+tipy-asm did not write is never overwritten; the build stops with an error instead.
 
 The other kinds are data for your program to read with
 :doc:`the storage library <libraries/storage>`.

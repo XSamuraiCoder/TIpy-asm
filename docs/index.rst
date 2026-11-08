@@ -59,6 +59,8 @@ Targets
    libraries/storage
    libraries/file
    libraries/sprite
+   libraries/serial
+   libraries/usb
    libraries/color
    libraries/font
    libraries/graph
