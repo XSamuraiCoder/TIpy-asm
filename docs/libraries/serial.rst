@@ -3,14 +3,13 @@ serial
 
 .. py:module:: ti84.serial
 
-Send and receive bytes. On CE this is USB serial, through CEdev's ``srldrvce``
-library:
+Send and receive bytes.
 
-- **Computer:** plugged into a computer, the calculator appears as a serial port.
-- **Arduino or another CE:** with an OTG cable, the calculator is the host for an
-  Arduino or other USB serial adapter, or for another CE.
-
-On classic calculators, it uses the link port, with the OS's own byte routines.
+- **CE:** plugged into a computer, the calculator is a USB serial port. TIpy drives
+  the USB controller itself, so a program needs nothing else on the calculator: no
+  LibLoad and no CE C libraries.
+- **Classic:** bytes go over the link port, to another calculator, using the OS's
+  own byte routines.
 
 .. code-block:: python
 
@@ -26,16 +25,27 @@ On classic calculators, it uses the link port, with the OS's own byte routines.
 
 ``examples/echo`` in the repository is this program.
 
-CE requirements
----------------
+USB serial on the CE
+--------------------
 
-CE programs that use serial need LibLoad and the CE C libraries (``USBDRVCE`` and
-``SRLDRVCE``) on the calculator, from https://tiny.cc/clibs. The program loads them
-when it starts, and shows which one is missing if it cannot.
+The calculator presents a standard CDC-ACM serial port with the USB ID 16C0:05E1,
+the same as CEdev's ``srldrvce``. Windows, Linux, macOS, and Chrome's Web Serial use
+it without installing anything. The computer sets the baud rate, so
+:py:func:`begin`'s argument does not matter on the CE.
 
-Call :py:func:`connected` or :py:func:`read_byte` often. They handle USB events,
-including opening the port when a device is plugged in. The USB driver is
-stopped when the program exits, even without :py:func:`end`.
+- **Events:** :py:func:`connected`, :py:func:`read_byte`, and the write methods
+  handle USB events, so call one of them often. :py:func:`connected` is True once
+  the computer has set the port up.
+- **Receiving:** bytes arrive in a 256-byte buffer. While it is full, the computer
+  waits.
+- **Sending:** data goes out in packets of up to 63 bytes. A write gives up if the
+  computer stops reading.
+- **Plugging in:** when the program starts, the calculator disconnects for a
+  moment, so the computer forgets the OS's own USB device and finds the serial
+  port. When the program exits, USB goes back to the OS.
+
+The calculator cannot be the USB host yet, so it cannot talk to an Arduino or
+another calculator over an OTG cable.
 
 Classic link port
 -----------------

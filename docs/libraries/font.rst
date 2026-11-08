@@ -24,6 +24,16 @@ kind TIpy-asm's converter writes: a ``font`` :doc:`asset <../projects>`, or
        for code in range(65, 91):       # A to Z
            x += font.char(f, code, x, 20, graphics.BLUE)
 
+TIpy also has a built-in 8-pixel font, the size of GraphX's default font.
+:py:func:`default` returns it. It is built into the program, so it needs no AppVar:
+
+.. code-block:: python
+
+   from ti84 import font, graphics
+
+   f = font.default()
+   font.char(f, 65, 10, 10, graphics.BLACK)
+
 :py:func:`load` returns a font, or 0 if the AppVar is missing or is not a font pack.
 A pack can hold several fonts; ``font.load("MYFONT", 1)`` is the second, and
 :py:func:`count` says how many there are.
