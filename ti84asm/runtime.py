@@ -1209,6 +1209,148 @@ RAW["_rt_vat_next"] = Raw(1, lambda t: "", ("_rt_vat_start",))
 RAW["_rt_vat_appvar"] = Raw(0, lambda t: "", ("_rt_vat_start",))
 
 
+def _scroll(t: Target) -> str:
+    # Move the rectangle (_rt_a0, _rt_a1, _rt_a2 wide, _rt_a3 tall) by _rt_a4 rows:
+    # up with LDIR when it is positive, down with LDDR when negative. The prelude
+    # clips it and makes sure 0 < |dy| < height.
+    if not t.is_ce:
+        return ""
+    return """
+_rt_scroll:
+    ld hl,(_rt_a2)
+    add hl,hl
+    ld (_rt_sc_bytes),hl
+    ld hl,(_rt_a4)
+    ld de,0
+    or a,a
+    sbc hl,de
+    jp m,_rt_sc_down
+    ld hl,(_rt_a3)
+    ld de,(_rt_a4)
+    or a,a
+    sbc hl,de
+    ld (_rt_sc_rows),hl
+    call _rt_vram
+    ld (_rt_sc_dst),hl
+    ld hl,(_rt_a1)
+    ld de,(_rt_a4)
+    add hl,de
+    ld (_rt_a1),hl
+    call _rt_vram
+    ld (_rt_sc_src),hl
+    call _rt_sc_full
+    jr nz,_rt_sc_up_row
+    ld hl,(_rt_sc_src)
+    ld de,(_rt_sc_dst)
+    ldir                         ; full-width rows follow each other: one copy
+    ret
+_rt_sc_up_row:
+    ld hl,(_rt_sc_src)
+    ld de,(_rt_sc_dst)
+    ld bc,(_rt_sc_bytes)
+    ldir
+    ld de,640
+    ld hl,(_rt_sc_src)
+    add hl,de
+    ld (_rt_sc_src),hl
+    ld hl,(_rt_sc_dst)
+    add hl,de
+    ld (_rt_sc_dst),hl
+    ld hl,(_rt_sc_rows)
+    dec hl
+    ld (_rt_sc_rows),hl
+    ld a,h
+    or a,l
+    jr nz,_rt_sc_up_row
+    ret
+_rt_sc_down:
+    ; n = -dy; copy from the bottom row up, each row from its last byte.
+    ex de,hl
+    or a,a
+    sbc hl,hl
+    sbc hl,de
+    ld (_rt_sc_n),hl
+    ld de,(_rt_a3)
+    ex de,hl
+    or a,a
+    sbc hl,de
+    ld (_rt_sc_rows),hl          ; h - n
+    ld hl,(_rt_a1)
+    ld de,(_rt_a3)
+    add hl,de
+    dec hl
+    ld (_rt_a1),hl               ; the bottom row
+    call _rt_vram
+    ld de,(_rt_sc_bytes)
+    add hl,de
+    dec hl
+    ld (_rt_sc_dst),hl
+    ld hl,(_rt_a1)
+    ld de,(_rt_sc_n)
+    or a,a
+    sbc hl,de
+    ld (_rt_a1),hl
+    call _rt_vram
+    ld de,(_rt_sc_bytes)
+    add hl,de
+    dec hl
+    ld (_rt_sc_src),hl
+    call _rt_sc_full
+    jr nz,_rt_sc_down_row
+    ld hl,(_rt_sc_src)
+    ld de,(_rt_sc_dst)
+    lddr
+    ret
+_rt_sc_down_row:
+    ld hl,(_rt_sc_src)
+    ld de,(_rt_sc_dst)
+    ld bc,(_rt_sc_bytes)
+    lddr
+    ld de,-640
+    ld hl,(_rt_sc_src)
+    add hl,de
+    ld (_rt_sc_src),hl
+    ld hl,(_rt_sc_dst)
+    add hl,de
+    ld (_rt_sc_dst),hl
+    ld hl,(_rt_sc_rows)
+    dec hl
+    ld (_rt_sc_rows),hl
+    ld a,h
+    or a,l
+    jr nz,_rt_sc_down_row
+    ret
+; Z if the rows are full width, with BC = rows * 640 bytes for one copy.
+_rt_sc_full:
+    ld hl,(_rt_sc_bytes)
+    ld de,640
+    or a,a
+    sbc hl,de
+    ret nz
+    ld hl,(_rt_sc_rows)
+    add hl,hl
+    add hl,hl
+    add hl,hl
+    add hl,hl
+    add hl,hl
+    add hl,hl
+    add hl,hl                    ; rows * 128
+    push hl
+    add hl,hl
+    add hl,hl                    ; rows * 512
+    pop de
+    add hl,de
+    push hl
+    pop bc
+    xor a,a                      ; Z
+    ret
+"""
+
+
+RAW["_rt_scroll"] = Raw(5, _scroll, ("_rt_vram",), ("_rt_sc_bytes", "_rt_sc_rows", "_rt_sc_src", "_rt_sc_dst",
+                                                  "_rt_sc_n"))
+
+
 RAW["_rt_line"] = Raw(5, _line, ("_rt_vram",), ("_rt_ln_x", "_rt_ln_y", "_rt_ln_dx", "_rt_ln_dy", "_rt_ln_sx",
                                               "_rt_ln_sy", "_rt_ln_err", "_rt_ln_e2"))
 
@@ -1241,6 +1383,50 @@ def _tipy_fill_rect(x, y, w, h, c):
         y1 = SCREEN_H
     if x < x1 and y < y1:
         _rt_fill_rect(x, y, x1, y1, c)
+
+def _tipy_scroll(x, y, w, h, dy, fill):
+    # Move a rectangle's pixels up by dy rows (down when dy < 0), then fill the strip
+    # left uncovered, unless fill is -1.
+    if x < 0:
+        w += x
+        x = 0
+    if y < 0:
+        h += y
+        y = 0
+    if x + w > SCREEN_W:
+        w = SCREEN_W - x
+    if y + h > SCREEN_H:
+        h = SCREEN_H - y
+    if w <= 0 or h <= 0 or dy == 0:
+        return
+    n = dy if dy > 0 else -dy
+    if n < h:
+        _rt_scroll(x, y, w, h, dy)
+    else:
+        n = h
+    if fill >= 0:
+        if dy > 0:
+            _tipy_fill_rect(x, y + h - n, w, n, fill)
+        else:
+            _tipy_fill_rect(x, y, w, n, fill)
+
+def _tipy_font_codes(font, codes, start, count, x, y, color):
+    # Draw count character codes from an int array, starting at index start.
+    codes += start * 3
+    while count > 0:
+        x += _rt_font_glyph(font, _rt_peek16(codes) & 255, x, y, color)
+        codes += 3
+        count -= 1
+    return x
+
+def _tipy_font_codes_width(font, codes, start, count):
+    codes += start * 3
+    width = 0
+    while count > 0:
+        width += _tipy_font_width(font, _rt_peek16(codes) & 255)
+        codes += 3
+        count -= 1
+    return width
 
 def _tipy_rect(x, y, w, h, c):
     _tipy_fill_rect(x, y, w + 1, 1, c)

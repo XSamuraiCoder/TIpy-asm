@@ -26,9 +26,9 @@ CONSTANTS = {
 
 _ARITY = {"default": (0,), "load": (1, 2), "count": (1,), "find": (0, 1), "family": (1,), "by_style": (7,),
           "height": (1,), "width": (2,), "char": (4, 5), "text": (4, 5, 6), "text_width": (2,),
-          "paragraph": (5, 6, 7)}
-_KEYWORDS = {"char": ("color",), "text": ("color", "background"), "paragraph": ("color", "background")}
-_POSITIONS = {"char": 4, "text": 4, "paragraph": 5}
+          "paragraph": (5, 6, 7), "codes": (6, 7), "codes_width": (4,)}
+_KEYWORDS = {"codes": ("color",), "char": ("color",), "text": ("color", "background"), "paragraph": ("color", "background")}
+_POSITIONS = {"codes": 6, "char": 4, "text": 4, "paragraph": 5}
 
 
 def constant(name: str) -> int | None:
@@ -115,6 +115,16 @@ def emit_call(compiler, node: ast.Call) -> None:
         background = _paint(compiler, args[5] if len(args) > 5 else None, -1)
         compiler.call_function("_tipy_font_text", [args[0], _text(compiler, args[1]), args[2], args[3], color,
                                                    background])
+    elif method in ("codes", "codes_width"):
+        array = args[1]
+        if not isinstance(array, ast.Name):
+            raise CompileError(f"font.{method}() takes a module-level int array, such as CODES")
+        label, _length = compiler._array(array.id)
+        if method == "codes":
+            color = _paint(compiler, args[6] if len(args) == 7 else None, _default_color(compiler))
+            compiler.call_function("_tipy_font_codes", [args[0], LabelRef(label), *args[2:6], color])
+        else:
+            compiler.call_function("_tipy_font_codes_width", [args[0], LabelRef(label), *args[2:4]])
     elif method == "text_width":
         compiler.call_function("_tipy_font_text_width", [args[0], _text(compiler, args[1])])
     elif method == "paragraph":

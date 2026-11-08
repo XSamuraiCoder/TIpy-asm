@@ -68,6 +68,11 @@ API: dict[str, dict[str, Method]] = {
                    "Draw one character from its code, such as 65 for A, at pixel x, y in the OS font.",
                    "graphics.char(x, y, 20, graphics.RED)", (CE,),
                    note="the classic target draws literal text only; use graphics.text"),
+        "scroll": _m("scroll(x, y, width, height, dy, fill=-1)",
+                     "Move a rectangle's pixels up by dy rows (down when dy is negative), then fill the "
+                     "uncovered strip with fill unless it is -1. Fast: whole rows move at once.",
+                     "graphics.scroll(0, 20, 320, 200, 10, graphics.WHITE)", (CE,),
+                     note="the classic screen cannot scroll yet"),
         "text_int": _m("text_int(value, x, y, color=BLACK)", "Draw an integer, such as a score.",
                        "graphics.text_int(score, x, y)", (CE,), False, _TEXT_NOTE),
         "sprite": _m("sprite(pixels, x, y)", "Draw literal RGB565 rows; None is transparent.",
@@ -183,6 +188,13 @@ API: dict[str, dict[str, Method]] = {
         "text": _m("text(font, text, x, y, color=BLACK, background=-1) -> int", "Draw a string literal, or "
                    "text at an address, from pixel x, y; returns the x after it. A background of -1 leaves "
                    "what is behind.", "z = font.text(x, 'Hi', 2, y, font.BLUE)", (CE,), True, _FONT_NOTE),
+        "codes": _m("codes(font, codes, start, count, x, y, color=BLACK) -> int",
+                    "Draw count character codes from a module-level int array, from index start, at pixel x, "
+                    "y; returns the x after them.", "z = font.codes(x, CODES, 0, 2, 4, y)", (CE,), True,
+                    _FONT_NOTE),
+        "codes_width": _m("codes_width(font, codes, start, count) -> int",
+                          "The width in pixels of count codes from an int array.",
+                          "z = font.codes_width(x, CODES, 0, 2)", (CE,), True, _FONT_NOTE),
         "text_width": _m("text_width(font, text) -> int", "The width of a string in pixels.",
                         "z = font.text_width(x, 'Hi')", (CE,), True, _FONT_NOTE),
         "paragraph": _m("paragraph(font, text, x, y, width, color=BLACK, background=-1) -> int",

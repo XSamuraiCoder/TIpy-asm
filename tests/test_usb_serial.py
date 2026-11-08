@@ -231,48 +231,5 @@ class SerialClassicTests(unittest.TestCase):
         self.assertEqual(sim.exit_sp, sim.sp_start)
 
 
-@unittest.skip("written for the old LibLoad USB libraries; the native driver needs a simulated USB controller")
-class SaxExampleTests(unittest.TestCase):
-    """examples/sax, the SAX chat client, against the fake USB serial bridge."""
-
-    def run_sax(self, keys, rx=b"", config=None):
-        from ti84asm.project import load_sources
-
-        source, _ = load_sources(Path(__file__).resolve().parents[1] / "examples/sax/src/main.py")
-        compiler = Compiler("SAXCE", "ce", source_dir=Path(__file__).resolve().parents[1] / "examples/sax/src")
-        usb = FakeUsb(rx=rx)
-        usb.plug(0xD50000)
-        appvars = {"SAXCFG": config} if config is not None else {}
-        sim = Sim(compiler.compile(source), "ce", keys=list(keys), hooks=usb.hooks(), appvars=appvars)
-        sim.run(150_000_000)
-        return sim, compiler, usb
-
-    def test_chats_with_the_bridge(self):
-        rx = b"R\nM bob\thi there\nS Joined #cemetech\n"
-        # Two idle loops, then type h (^) and i (x^2), send with enter, and quit with clear.
-        sim, compiler, usb = self.run_sax([0, 0, 14, 45, 9, 0, 15], rx, b"Akhil\0\0")
-        self.assertEqual(bytes(usb.tx), b"H Akhil\nH Akhil\nM hi\n")
-        self.assertEqual(usb.baud, 115200)
-        log = compiler.array_labels
-        count = sim.word(compiler.variables["log_count"])
-        kinds = [sim.read(sim.labels[log["log_kind"]] + 3 * i, 3) for i in range(count)]
-        # Welcome, plug in, linked, bob's message, the status line, and our echo.
-        self.assertEqual(kinds, [ord("S"), ord("S"), ord("S"), ord("M"), ord("S"), ord("E")])
-        who = [sim.read(sim.labels[log["log_who"]] + 3 * (3 * 15 + i), 3) for i in range(3)]
-        self.assertEqual(bytes(who), b"bob")
-        self.assertEqual(usb.calls[-1], "usb_Cleanup")
-
-    def test_first_run_asks_for_a_nickname_and_saves_it(self):
-        # No SAXCFG: type "ab" at the prompt, save with enter, then quit.
-        sim, compiler, usb = self.run_sax([47, 39, 9, 0, 15])
-        self.assertEqual(sim.appvar("SAXCFG")[:4], b"ab\0\0")
-        self.assertIn(b"H ab\n", bytes(usb.tx))
-
-    def test_cancelling_the_first_nickname_quits(self):
-        sim, compiler, usb = self.run_sax([15])
-        self.assertEqual(bytes(usb.tx), b"")
-        self.assertEqual(usb.calls[-1], "usb_Cleanup")
-
-
 if __name__ == "__main__":
     unittest.main()

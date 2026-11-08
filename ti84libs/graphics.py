@@ -838,6 +838,14 @@ def emit_call(compiler, node: ast.Call) -> None:
     method = node.func.attr
     if method == "char":
         _emit_char(compiler, node)
+    elif method == "scroll":
+        if node.keywords or len(node.args) not in (5, 6):
+            raise CompileError("scroll() takes x, y, width, height, dy, and an optional fill color")
+        args = list(node.args)
+        fill = args[5] if len(args) == 6 else ast.Constant(-1)
+        if compiler.constant_integer(fill) is not None and compiler.constant_integer(fill) >= 0:
+            fill = ast.Constant(_color(compiler, fill, "scroll fill"))
+        compiler.call_function("_tipy_scroll", [*args[:5], fill])
     elif method in _SHAPES:
         _emit_shape(compiler, node, method)
     elif method == "sprite":
