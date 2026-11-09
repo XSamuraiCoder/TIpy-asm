@@ -1,4 +1,4 @@
-"""Convert a whole CEdev or ICE project into a TIpy-asm project.
+"""Convert a whole CEdev, ICE, or Axe project into a TIpy-asm project.
 
 The output is a normal project: ``src/*.py``, assets declared in pyproject.toml,
 and CONVERSION_NOTES.md listing anything that needs a person's attention. The
@@ -17,6 +17,7 @@ from pathlib import Path
 
 from ..errors import CompileError
 from .c_like import Conversion
+from .axe_convert import convert_axe
 from .cedev_convert import convert_cedev
 from .ice_convert import convert_ice
 
@@ -27,11 +28,19 @@ _ASSET_SUFFIXES = (*_IMAGE_SUFFIXES, *_FONT_SUFFIXES, ".ttf", ".otf", ".bin")
 _NOTES = "CONVERSION_NOTES.md"
 
 
+_AXE_SUFFIXES = (".8xp", ".axe")
+
+
 def detect_type(project: Path) -> str:
-    """Tell CEdev and ICE projects apart by the source files they contain."""
+    """Tell CEdev, ICE, and Axe projects apart by the source files they contain."""
     if project.is_file():
-        return "ice" if project.suffix.lower() == ".ice" else "cedev"
-    return "ice" if any(_project_files(project, (".ice",))) else "cedev"
+        suffix = project.suffix.lower()
+        return "ice" if suffix == ".ice" else "axe" if suffix in _AXE_SUFFIXES else "cedev"
+    if any(_project_files(project, (".ice",))):
+        return "ice"
+    if not any(_project_files(project, (".c",))) and any(_project_files(project, _AXE_SUFFIXES)):
+        return "axe"
+    return "cedev"
 
 
 def _project_files(root: Path, suffixes: tuple[str, ...]) -> list[Path]:
@@ -90,13 +99,14 @@ class ProjectConverter:
         self.converted_files: list[Path] = []
         self.warnings: list[str] = []
         self.root = self.project_path if self.project_path.is_dir() else self.project_path.parent
+        self.target = "classic" if self.project_type == "axe" else "ce"
 
     def convert(self) -> list[Path]:
         if self.output_path.resolve() == self.root.resolve():
             raise CompileError("choose an output folder other than the project being converted")
         sources = self._sources()
         if not sources:
-            kind = ".ice" if self.project_type == "ice" else ".c"
+            kind = {"ice": ".ice", "axe": ".8xp or .axe"}.get(self.project_type, ".c")
             raise CompileError(f"no {kind} source files found in {self.project_path}")
         self.output_path.mkdir(parents=True, exist_ok=True)
         modules = self._translate_all(sources)
@@ -112,13 +122,13 @@ class ProjectConverter:
         return self.converted_files
 
     def _sources(self) -> list[Path]:
-        suffix = (".ice",) if self.project_type == "ice" else (".c",)
+        suffix = {"ice": (".ice",), "axe": _AXE_SUFFIXES}.get(self.project_type, (".c",))
         if self.project_path.is_file():
             return [self.project_path]
         return _project_files(self.project_path, suffix)
 
     def _translate_all(self, sources: list[Path]) -> dict[str, dict]:
-        translate = convert_ice if self.project_type == "ice" else convert_cedev
+        translate = {"ice": convert_ice, "axe": convert_axe}.get(self.project_type, convert_cedev)
         modules: dict[str, dict] = {}
         for source in sources:
             name = re.sub(r"\W", "_", source.stem)
@@ -127,7 +137,7 @@ class ProjectConverter:
             conversion = translate(source)
             self.warnings.extend(f"{source.relative_to(self.root)}: {warning}" for warning in conversion.warnings)
             modules[name] = {"source": source, "conversion": conversion}
-        if self.project_type != "ice":
+        if self.project_type == "cedev":
             for header in _project_files(self.root, (".h",)):
                 name = re.sub(r"\W", "_", header.stem)
                 conversion = translate(header)
@@ -178,7 +188,7 @@ class ProjectConverter:
         output = self.output_path / "pyproject.toml"
         text = (f'[tool.tipy]\nname = "{_program_name(self.project_path)}"\n'
                 f'description = "Converted from {self.project_path.name}"\n'
-                f'main = "src/{main_module}.py"\ntarget = "ce"\nbindir = "bin"\n')
+                f'main = "src/{main_module}.py"\ntarget = "{self.target}"\nbindir = "bin"\n')
         if assets:
             text += "\n" + "\n".join(assets)
         output.write_text(text, encoding="utf-8")
@@ -192,7 +202,12 @@ class ProjectConverter:
             lines += [f"- {warning}" for warning in self.warnings]
         else:
             lines.append("Everything converted without warnings.")
-        lines += ["", "CEdev palette indices are not RGB565 colors, so check that colors from `gfx_SetColor()` look right."]
+        if self.project_type == "cedev":
+            lines += ["", "CEdev palette indices are not RGB565 colors, so check that colors from `gfx_SetColor()` "
+                      "look right."]
+        if self.project_type == "axe":
+            lines += ["", "Axe math runs left to right, so the converted expressions are parenthesized in that "
+                      "order. Axe numbers are 16-bit and wrap; TIpy's classic integers are 16-bit too."]
         output.write_text("\n".join(lines) + "\n", encoding="utf-8")
         self.converted_files.append(output)
 
@@ -202,6 +217,11 @@ def convert_cedev_project(project_path: str | Path, output_path: str | Path) -> 
     return ProjectConverter(Path(project_path), Path(output_path), "cedev").convert()
 
 
+def convert_axe_project(project_path: str | Path, output_path: str | Path) -> list[Path]:
+    """Convert an Axe source program (.8xp or text) or a folder of them; return the files written."""
+    return ProjectConverter(Path(project_path), Path(output_path), "axe").convert()
+
+
 def convert_ice_project(project_path: str | Path, output_path: str | Path) -> list[Path]:
     """Convert an ICE project folder or file; return the files written."""
     return ProjectConverter(Path(project_path), Path(output_path), "ice").convert()
@@ -209,9 +229,9 @@ def convert_ice_project(project_path: str | Path, output_path: str | Path) -> li
 
 def add_arguments(parser) -> None:
     """Add command-line arguments for convert-project."""
-    parser.add_argument("project", type=Path, help="CEdev or ICE project folder, or a single source file")
+    parser.add_argument("project", type=Path, help="CEdev, ICE, or Axe project folder, or a single source file")
     parser.add_argument("-o", "--output", type=Path, help="output folder (default: PROJECT_converted)")
-    parser.add_argument("--type", choices=["auto", "cedev", "ice"], default="auto",
+    parser.add_argument("--type", choices=["auto", "cedev", "ice", "axe"], default="auto",
                         help="project type (default: detect from the source files)")
     parser.add_argument("--verbose", "-v", action="store_true", help="list every file written and every warning")
 
@@ -241,7 +261,7 @@ def run(args) -> int:
     segments = []
     try:
         source, segments = load_sources(config.main)
-        Compiler(config.name, "ce").compile(source)
+        Compiler(config.name, config.target if config.target != "both" else "ce").compile(source)
     except CompileError as exc:
         print("The converted project does not compile yet:")
         print(format_diagnostic(str(exc), segments))

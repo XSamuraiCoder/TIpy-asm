@@ -60,7 +60,8 @@ Each folder in `examples/` is a project; build one with `tipy-asm build examples
 | `tipy-asm api [LIBRARY]` | List library methods and the targets that support them |
 | `tipy-asm doctor` | Show installed tools and the project's setup |
 | `tipy-asm clean` | Delete the project's build folder |
-| `tipy-asm convert-project PATH` | Convert a CEdev or ICE project into a TIpy-asm project |
+| `tipy-asm convert-project PATH` | Convert a CEdev, ICE, or Axe project into a TIpy-asm project |
+| `tipy-asm decompile FILE` | Turn a .8xp back into TI-BASIC or Axe text, or a Z80/eZ80 disassembly |
 | `tipy-asm convbin`, `convimg`, `convert-image` | Convert data and images by hand |
 | `tipy-asm convfont` | Convert `.fnt` and text-format fonts, matching CEdev's `convfont` byte for byte |
 
@@ -191,7 +192,7 @@ rather than doing nothing. Text with runtime coordinates and `text_int()` need
 the CE target. A failed `storage` read or write, such as a missing AppVar or a
 bad offset, ends the program.
 
-## Converting CEdev and ICE projects
+## Converting CEdev, ICE, and Axe projects
 
 ```powershell
 tipy-asm convert-project path\to\project -o converted
@@ -201,6 +202,19 @@ This writes a normal project, then compiles it and tells you whether it worked.
 Code with no TIpy equivalent, such as pointers, structs, and `switch`, becomes a
 `# TODO(convert)` comment and is listed in `CONVERSION_NOTES.md`. CEdev palette
 indices are not RGB565 colors, so check the colors of a converted program.
+
+Axe Parser source, as a tokenized `.8xp` or a `.axe` text file, converts to a
+classic project. Axe's left-to-right math is kept exactly, and `Lbl`/`sub()`
+routines become functions.
+
+## Decompiling
+
+```powershell
+tipy-asm decompile GAME.8xp
+```
+
+TI-BASIC and Axe source come back as text, and assembly programs as a Z80 (TI-83
+Plus/84 Plus) or eZ80 (CE) disassembly, with labels and named OS routines.
 
 ## Tests
 

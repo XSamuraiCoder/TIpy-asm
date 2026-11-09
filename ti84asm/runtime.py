@@ -61,6 +61,9 @@ class Raw:
     code: Callable[[Target], str]
     deps: tuple[str, ...] = ()
     words: tuple[str, ...] = ()           # private static words
+    # Tables and buffers, emitted with the program's data after all code: on the
+    # TI-84 Plus, code must stay below $C000, so data must not push it up.
+    data: Callable[[Target], str] | None = None
 
 
 def _neg(t: Target) -> str:
@@ -865,6 +868,29 @@ def _usb_raw() -> dict[str, Raw]:
 
 
 RAW.update(_usb_raw())
+
+
+def _usb84_raw() -> dict[str, Raw]:
+    """Classic ti84.serial: USB on the TI-84 Plus/SE (see usb84.py), the link port otherwise."""
+    from . import usb84 as u
+
+    begin = ("_rt_u84_begin",)
+    poll = ("_rt_u84_poll", *begin)
+    link = ("_rt_link_read_byte", "_rt_link_write", "_rt_link_write_byte")
+    shared = ("_rt_cser_connected",)
+    return {
+        "_rt_u84_begin": Raw(0, u.u84_begin, data=u.u84_data),
+        "_rt_u84_end": Raw(0, u.u84_end, begin),
+        "_rt_u84_poll": Raw(0, u.u84_poll, begin),
+        "_rt_u84_send": Raw(2, u.u84_send, poll),
+        "_rt_cser_connected": Raw(0, u.cser, ("_rt_u84_send", *poll, *link)),
+        "_rt_cser_read_byte": Raw(0, lambda t: "", shared),
+        "_rt_cser_write": Raw(2, lambda t: "", shared),
+        "_rt_cser_write_byte": Raw(1, lambda t: "", shared),
+    }
+
+
+RAW.update(_usb84_raw())
 
 
 def _font_glyph(t: Target) -> str:
@@ -1701,6 +1727,9 @@ def _tipy_font_family(pack):
     meta = _tipy_word24(pack + 8)
     if meta == 0:
         return 0
+    # The metadata starts with its own length; the family name's offset follows it.
+    if _tipy_word24(pack + meta) < 6:
+        return 0
     name = _tipy_word24(pack + meta + 3)
     return pack + name if name else 0
 
@@ -1890,4 +1919,7 @@ def render(names: set[str], target: Target) -> tuple[list[str], list[str]]:
     if "_rt_find_var" in seen:
         data = [line for line in data if not line.startswith("_rt_var_archived")]
         data.append(target.bytes("_rt_var_archived", 0))
+    for name in sorted(seen):
+        if RAW[name].data is not None:
+            data.extend(line for line in RAW[name].data(target).splitlines() if line.strip())
     return code, data

@@ -1,8 +1,8 @@
 """Echo every byte received back to the sender, and count them. CLEAR quits.
 
-On the CE, plug the calculator into a computer and open its serial port (any
-baud rate). It needs nothing else on the calculator.
-On classic calculators, connect another calculator with a link cable.
+On the CE, TI-84 Plus, or Plus SE, plug the calculator into a computer by USB and
+open its serial port (any baud rate). It needs nothing else on the calculator.
+On a TI-83 Plus, connect another calculator with a link cable.
 """
 from ti84 import keyboard, serial
 

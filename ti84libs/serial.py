@@ -5,9 +5,10 @@ On the CE, TIpy's own USB driver makes the calculator a USB serial device
 It needs no LibLoad or CE C libraries. The calculator cannot yet be the USB
 host for an Arduino or another calculator.
 
-On classic calculators, it sends and receives bytes over the 2.5 mm link port
-with the OS's own routines, so two calculators running TIpy programs, or any
-program using the same OS calls, can talk.
+On the TI-84 Plus and Plus SE, TIpy's own driver makes the calculator's USB
+port a USB serial device too, with the same ID (see usb84.py). A TI-83 Plus
+has no USB, so there serial sends and receives over the 2.5 mm link port with
+the OS's own routines, and two calculators running TIpy programs can talk.
 """
 
 from __future__ import annotations
@@ -36,20 +37,19 @@ def emit_call(compiler, node: ast.Call) -> None:
             compiler.call_raw("_rt_usb_init", [])
         else:
             if args:
-                compiler.expression(args[0])        # evaluated for its effects, as on CE
-            compiler.emit("    ld hl,0")
+                compiler.expression(args[0])        # the computer sets the baud rate over USB
+            compiler.call_raw("_rt_u84_begin", [])
     elif method == "end":
-        if ce:
-            compiler.call_raw("_rt_usb_end", [])
+        compiler.call_raw("_rt_usb_end" if ce else "_rt_u84_end", [])
     elif method == "connected":
         if ce:
             compiler.call_raw("_rt_srl_connected", [])
         else:
-            compiler.emit("    ld hl,1")
+            compiler.call_raw("_rt_cser_connected", [])
     elif method == "read_byte":
-        compiler.call_raw("_rt_srl_read_byte" if ce else "_rt_link_read_byte", [])
+        compiler.call_raw("_rt_srl_read_byte" if ce else "_rt_cser_read_byte", [])
     elif method == "write_byte":
-        compiler.call_raw("_rt_srl_write_byte" if ce else "_rt_link_write_byte", args)
+        compiler.call_raw("_rt_srl_write_byte" if ce else "_rt_cser_write_byte", args)
     elif method == "write":
         text = args[0]
         if not isinstance(text, ast.Constant) or not isinstance(text.value, str):
@@ -60,13 +60,13 @@ def emit_call(compiler, node: ast.Call) -> None:
             raise CompileError("serial.write() sends ASCII text only") from exc
         label = compiler.label("serial_text")
         compiler.data_bytes(label, list(encoded) or [0])
-        compiler.call_raw("_rt_usb_send" if ce else "_rt_link_write", [LabelRef(label), ast.Constant(len(encoded))])
+        compiler.call_raw("_rt_usb_send" if ce else "_rt_cser_write", [LabelRef(label), ast.Constant(len(encoded))])
     elif method == "write_int":
         # The decimal text ends at _rt_it_buf + 9; its length is the distance from the start.
         compiler.expression(args[0])
         compiler.use_helper("_rt_itoa")
         compiler.emit("    call _rt_itoa")
-        write = "_rt_usb_send" if ce else "_rt_link_write"
+        write = "_rt_usb_send" if ce else "_rt_cser_write"
         compiler.use_helper(write)
         compiler.emit("    ld (_rt_a0),hl")
         compiler.emit("    ex de,hl")

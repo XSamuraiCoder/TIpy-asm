@@ -244,9 +244,10 @@ API: dict[str, dict[str, Method]] = {
                          "usb.buffer_set(x, y)", (CE,), note=_USB_NOTE),
     },
     "serial": {
-        "begin": _m("begin(baud=9600) -> int", "Get ready to send and receive; 0 on success. On CE the calculator becomes a USB serial "
-                    "port (no clibs needed); the computer sets the baud rate.", "z = serial.begin()", returns=True),
-        "end": _m("end()", "Stop serial. On CE, a program that started it also stops it when it exits.",
+        "begin": _m("begin(baud=9600) -> int", "Get ready to send and receive. On the CE, TI-84 Plus, and Plus SE the calculator "
+                    "becomes a USB serial port and the computer sets the baud rate; 0 on success. A TI-83 "
+                    "Plus has no USB and uses the link port (returns 1).", "z = serial.begin()", returns=True),
+        "end": _m("end()", "Stop serial and give USB back to the OS; a program that started it also does this when it exits.",
                   "serial.end()"),
         "connected": _m("connected() -> bool", "Whether a serial device is ready. On CE, this also handles USB "
                         "events. The classic link port cannot tell, so it is always True there.",

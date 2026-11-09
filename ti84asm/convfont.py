@@ -898,9 +898,21 @@ def load_font(path: Path) -> Font:
     return parse_fnt(data) if suffix == ".fnt" else parse_text(data)
 
 
-def font_appvar(source: Path, output: Path, name: str) -> Path:
-    """Write a project font asset: an archived AppVar holding a one-font FONTPACK."""
-    pack = serialize_fontpack([load_font(source)])
+def font_appvar(sources, output: Path, name: str, metadata: dict[str, str] | None = None) -> Path:
+    """Write a project font asset: an archived AppVar holding a FONTPACK of one font or several.
+
+    ``metadata`` maps convfont's metadata letters (N family, A author, C copyright,
+    D description, V version) to their text.
+    """
+    if isinstance(sources, Path):
+        sources = [sources]
+    encoded = {}
+    for letter, text in (metadata or {}).items():
+        try:
+            encoded[letter] = text.encode("ascii")
+        except UnicodeEncodeError as exc:
+            raise FontError(BAD_OPTIONS, f"font {letter} metadata must be ASCII: {text!r}") from exc
+    pack = serialize_fontpack([load_font(source) for source in sources], encoded or None)
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_bytes(ti_file(TYPE_APPVAR, name, pack, archived=True))
     return output

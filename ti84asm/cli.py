@@ -100,7 +100,11 @@ def build_parser() -> argparse.ArgumentParser:
     config_group.add_argument("--makefile", action="store_true", help="print core toolchain makefile path")
 
     from .project_convert.project_converter import add_arguments as project_converter_add_args
-    project_converter_add_args(commands.add_parser("convert-project", help="convert a CEdev or ICE project to a TIpy-asm project"))
+    project_converter_add_args(commands.add_parser("convert-project",
+                                                   help="convert a CEdev, ICE, or Axe project to a TIpy-asm project"))
+    from .decompile import add_arguments as decompile_add_args
+    decompile_add_args(commands.add_parser("decompile", help="turn a .8xp or other TI file back into source: "
+                                                             "TI-BASIC or Axe text, or a Z80/eZ80 disassembly"))
 
     image = commands.add_parser("convert-image", help="convert a PNG or other Pillow image to TIpy sprite source")
     image.add_argument("image", type=Path, help="input image file")
@@ -213,6 +217,46 @@ def _assemble(job: BuildJob, target: str, assembly: str, program: str, output: P
             shutil.copy2(assembler_output, output)
         if not output.is_file():
             raise CompileError(f"assembler completed without creating {output}")
+    if target == "classic":
+        _check_classic_code_limit(assembly, output)
+
+
+# The TI-84 Plus runs no code at or above $C000; programs load at userMem.
+_CLASSIC_USER_MEM = 0x9D95
+_CLASSIC_CODE_LIMIT = 0xC000
+
+
+def _classic_data_size(assembly: str) -> int:
+    """Bytes in the program's data section: the .db/.dw lines after "; Program data"."""
+    marker = assembly.find("\n; Program data")
+    if marker < 0:
+        return 0
+    size = 0
+    for line in assembly[marker:].splitlines():
+        text = line.split(";", 1)[0].strip()
+        if ":" in text.split(".", 1)[0]:
+            text = text.split(":", 1)[1].strip()
+        for directive, width in ((".db", 1), (".dw", 2)):
+            if text.lower().startswith(directive + " "):
+                for item in text[len(directive):].split(","):
+                    item = item.strip()
+                    size += len(item) - 2 if item[:1] in "'\"" and len(item) >= 2 else width
+    return size
+
+
+def _check_classic_code_limit(assembly: str, output: Path) -> None:
+    """Fail when code reaches $C000, where the TI-84 Plus refuses to execute."""
+    raw = output.read_bytes()
+    if len(raw) < 72:
+        return
+    body = raw[72] | raw[73] << 8                 # the program's own size word
+    code_end = _CLASSIC_USER_MEM + body - 2 - _classic_data_size(assembly)
+    if code_end > _CLASSIC_CODE_LIMIT:
+        over = code_end - _CLASSIC_CODE_LIMIT
+        output.unlink()
+        raise CompileError(f"the program's code ends at ${code_end:04X}, {over} bytes past $C000: the TI-84 Plus "
+                           f"will not run code there. Make its code {over} bytes smaller; data such as arrays and "
+                           f"strings may sit above $C000, so keeping tables in arrays helps")
 
 
 def _targets(target: str) -> tuple[str, ...]:
@@ -263,7 +307,7 @@ def _run_build(args: argparse.Namespace, job: BuildJob) -> list[Path]:
 def _watched_files(job: BuildJob) -> dict[Path, float]:
     paths = [segment.path for segment in job.segments] or [job.source]
     if job.project is not None:
-        paths.extend(asset.source for asset in job.project.assets)
+        paths.extend(source for asset in job.project.assets for source in asset.sources)
         paths.append(job.project.root / "pyproject.toml")
     return {path: path.stat().st_mtime for path in paths if path.exists()}
 
@@ -412,6 +456,9 @@ def _dispatch(args: argparse.Namespace, job_holder: list[BuildJob]) -> int:
         option = next(flag for flag in ("version", "prefix", "makefile") if getattr(args, flag))
         print(cedev_config_run([f"--{option}"]))
         return 0
+    if command == "decompile":
+        from .decompile import run as decompile_run
+        return decompile_run(args)
     if command == "convert-project":
         from .project_convert import run as convert_project_run
         return convert_project_run(args)
@@ -443,6 +490,11 @@ def _dispatch(args: argparse.Namespace, job_holder: list[BuildJob]) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
+    # Program text can hold calculator characters such as → that a console's code
+    # page lacks; show those as ? instead of failing.
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(errors="replace")
     arguments = sys.argv[1:] if argv is None else argv
     if arguments[:1] == ["convfont"]:
         # convfont's options depend on their order, so it reads them itself, as CEdev's does.

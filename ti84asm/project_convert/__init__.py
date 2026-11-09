@@ -1,4 +1,4 @@
-"""Tools for converting existing CEdev C and ICE projects into TIpy-asm projects.
+"""Tools for converting existing CEdev C, ICE, and Axe projects into TIpy-asm projects.
 
 Usage::
 
@@ -12,8 +12,10 @@ From the command line: ``tipy-asm convert-project path/to/project``.
 
 from __future__ import annotations
 
+from .axe_convert import axe_to_python
 from .cedev_convert import cedev_to_python
 from .ice_convert import ice_to_python
-from .project_converter import convert_cedev_project, convert_ice_project, run
+from .project_converter import convert_axe_project, convert_cedev_project, convert_ice_project, run
 
-__all__ = ["cedev_to_python", "ice_to_python", "convert_cedev_project", "convert_ice_project", "run"]
+__all__ = ["axe_to_python", "cedev_to_python", "ice_to_python", "convert_axe_project", "convert_cedev_project",
+           "convert_ice_project", "run"]
