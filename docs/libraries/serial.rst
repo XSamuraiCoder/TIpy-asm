@@ -8,8 +8,10 @@ Send and receive bytes.
 - **CE:** plugged into a computer, the calculator is a USB serial port. TIpy drives
   the USB controller itself, so a program needs nothing else on the calculator: no
   LibLoad and no CE C libraries.
-- **Classic:** bytes go over the link port, to another calculator, using the OS's
-  own byte routines.
+- **TI-84 Plus and Plus SE:** the calculator's own USB port is a USB serial port too,
+  with TIpy's own driver.
+- **TI-83 Plus:** it has no USB, so bytes go over the link port to another
+  calculator, using the OS's own byte routines.
 
 .. code-block:: python
 
@@ -47,8 +49,23 @@ it without installing anything. The computer sets the baud rate, so
 The calculator cannot be the USB host yet, so it cannot talk to an Arduino or
 another calculator over an OTG cable.
 
-Classic link port
------------------
+USB serial on the TI-84 Plus
+----------------------------
+
+The TI-84 Plus and Plus SE present the same serial port as the CE, with the same USB
+ID, so the same computer software finds them. While the program runs, TIpy drives the
+USB controller itself: :py:func:`begin` keeps the OS from answering the computer as a
+TI device, and :py:func:`end`, or the program's exit, gives USB back to the OS. The
+data endpoints are 0x81 (in) and 0x02 (out), the pipes the TI OS uses on this
+hardware. As on the CE, call :py:func:`connected` or :py:func:`read_byte` often, and
+the calculator is a device only.
+
+The 84 Plus's USB controller is undocumented. The driver follows the community's
+notes and how Brandon Wilson's Linky drives it, and has not been tested on every
+hardware revision.
+
+Link port on the TI-83 Plus
+---------------------------
 
 :py:func:`read_byte` returns -1 at once when nothing is being sent. A byte that
 cannot be sent, such as with no calculator on the other end, makes

@@ -182,9 +182,24 @@ tipy-asm did not write is never overwritten; the build stops with an error inste
 The other kinds are data for your program to read with
 :doc:`the storage library <libraries/storage>`.
 
-A ``font`` asset takes a ``.fnt`` or text-format ``.convfont`` file and writes a one-font
-FONTPACK AppVar. TTF and OTF files need converting with a separate tool first. The
-assembly targets cannot draw FontLibC fonts yet, so these AppVars are for other programs.
+A ``font`` asset takes a ``.fnt`` or text-format ``.convfont`` file, or a list of them, and
+writes a FONTPACK AppVar that :doc:`the font library <libraries/font>` draws. TTF and OTF
+files need converting with a separate tool first. The pack's metadata comes from these
+keys, as convfont's ``-N``, ``-A``, ``-C``, ``-D``, and ``-V`` options:
+
+.. code-block:: toml
+
+   [[tool.tipy.assets]]
+   source = ["fonts/drsans-07-normal.convfont", "fonts/drsans-07-bold.convfont"]
+   kind = "font"
+   name = "SAXFONT"
+   family = "DrSans"            # font.family() and font.family_codes() read this
+   author = "Your name"
+   version = "1.0"
+
+``family`` defaults to the first file's name up to its size, such as ``drsans`` for
+``drsans-07-normal.convfont``. ``copyright`` and ``description`` are the other keys.
+Changing any of them in ``pyproject.toml`` rebuilds the pack.
 
 Toolchain paths
 ---------------
