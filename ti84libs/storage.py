@@ -1,4 +1,4 @@
-"""Persistent byte storage using TI AppVars. Also serves as ``ti84.file`` on assembly."""
+"""Persistent bytes in TI AppVars: ``ti84.storage`` and ``ti84.file`` are this one library."""
 
 from __future__ import annotations
 

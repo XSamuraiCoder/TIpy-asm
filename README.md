@@ -181,16 +181,19 @@ VS Code/Pylance can complete these names.
 | `keyboard` | `read()` waits for a key, `get()` returns at once, `is_down(key)` tests a held key |
 | `math` | `abs min max clamp sign sqrt pow sin cos`, all integer; `sin` and `cos` take degrees and scale by 256 |
 | `random` | `seed randrange randint` |
-| `storage`, `file` | AppVar bytes that persist between runs |
+| `storage`, `file` | One library under two names: AppVar bytes and 16-bit values that persist between runs |
 | `sprite` | AppVar sprites from project assets (CE only) |
 | `color` | Color constants and conversions. On classic, colors are 0 (white) or 1 (black) |
+| `font` | FontLibC fonts and font packs, and a built-in 8-pixel font (CE only) |
+| `usb`, `serial` | Native USB, and serial over USB (the link port on a TI-83 Plus); assembly only |
 | `graph` | The Flash App's graph screen (Flash App only) |
 
-Not implemented: FontLibC fonts (`ti84.font` has only color constants, so use
-`graphics.text()`), and scaled or rotated sprites. Calling these gives an error
-rather than doing nothing. Text with runtime coordinates and `text_int()` need
-the CE target. A failed `storage` read or write, such as a missing AppVar or a
-bad offset, ends the program.
+Every target uses this one API: a Flash App imports the same libraries with the
+same methods and arguments. Run `tipy-asm api NAME` to see which targets have each
+method; one a target lacks, such as scaled or rotated sprites, is an error rather
+than code that does nothing. Text with runtime coordinates and `text_int()` need
+the CE. A failed `storage` read or write, such as a missing AppVar or a bad
+offset, ends the program.
 
 ## Converting CEdev, ICE, and Axe projects
 
@@ -213,8 +216,10 @@ routines become functions.
 tipy-asm decompile GAME.8xp
 ```
 
-TI-BASIC and Axe source come back as text, and assembly programs as a Z80 (TI-83
-Plus/84 Plus) or eZ80 (CE) disassembly, with labels and named OS routines.
+TI-BASIC and Axe source come back as text. Assembly programs come back as a Z80
+(TI-83 Plus/84 Plus) or eZ80 (CE) disassembly in `GAME.asm`, with labels and named OS
+routines, and as Python in `GAME.py`: each routine a function, registers as
+variables, compares as `if` statements, and OS calls named.
 
 ## Tests
 

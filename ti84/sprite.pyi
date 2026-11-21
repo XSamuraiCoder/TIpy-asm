@@ -1,4 +1,4 @@
-"""Sprites stored in AppVars, built by a project's [[tool.tipy.assets]]. CE assembly only.
+"""Sprites stored in AppVars, built by a project's [[tool.tipy.assets]]. CE assembly and Flash Apps.
 
 A sprite value is the address of its data, or 0 if the AppVar was not found.
 Use graphics.sprite() for literal sprites on the classic target.

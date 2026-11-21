@@ -112,17 +112,6 @@ API: dict[str, dict[str, Method]] = {
         "randint": _m("randint(low, high) -> int", "Random integer from low to high inclusive.",
                       "z = random.randint(x, y)", returns=True),
     },
-    "storage": {
-        "create": _m("create(name, size)", "Create a zero-filled AppVar unless it already exists.", "storage.create('SAVE', x)"),
-        "exists": _m("exists(name) -> bool", "Whether an AppVar exists.", "z = storage.exists('SAVE')", returns=True),
-        "size": _m("size(name) -> int", "An AppVar's size in bytes, or 0 if missing.", "z = storage.size('SAVE')", returns=True),
-        "delete": _m("delete(name)", "Delete an AppVar if it exists.", "storage.delete('SAVE')"),
-        "read_byte": _m("read_byte(name, offset) -> int", "Read a byte. A missing AppVar or bad offset ends the program.",
-                        "z = storage.read_byte('SAVE', x)", returns=True),
-        "write_byte": _m("write_byte(name, offset, value)",
-                         "Write a byte. A missing or archived AppVar, or a bad offset, ends the program.",
-                         "storage.write_byte('SAVE', x, y)"),
-    },
     "file": {
         "exists": _m("exists(name) -> bool", "Whether an AppVar exists.", "z = file.exists('SAVE')", returns=True),
         "size": _m("size(name) -> int", "An AppVar's size in bytes, or 0 if missing.", "z = file.size('SAVE')", returns=True),
@@ -168,10 +157,10 @@ API: dict[str, dict[str, Method]] = {
         "default": _m("default() -> int", "TIpy's built-in 8-pixel font, built into the program: no AppVar "
                       "or clibs needed.", "z = font.default()", (CE,), True, _FONT_NOTE),
         "load": _m("load(pack, index=0) -> int", "Font index of a font pack: an AppVar name such as one built "
-                   "by a font asset, or a pack from find(); 0 if it is missing.", "z = font.load('SAXFONT')",
+                   "by a font asset, or a pack from find(); 0 if it is missing.", "z = font.load('MYFONT')",
                    (CE,), True, _FONT_NOTE),
         "count": _m("count(pack) -> int", "How many fonts a font pack holds; 0 if it is not one.",
-                    "z = font.count('SAXFONT')", (CE,), True, _FONT_NOTE),
+                    "z = font.count('MYFONT')", (CE,), True, _FONT_NOTE),
         "find": _m("find(n=0) -> int", "The n-th font pack AppVar on the calculator, whatever its name; 0 when "
                    "there are no more.", "z = font.find(x)", (CE,), True, _FONT_NOTE),
         "family": _m("family(pack) -> int", "The address of a pack's font family name, for font.text(); 0 if "
@@ -179,28 +168,20 @@ API: dict[str, dict[str, Method]] = {
         "by_style": _m("by_style(pack, min_height, max_height, min_weight, max_weight, styles_set, styles_unset) "
                        "-> int", "As fontlib_GetFontByStyle: the first font in a pack whose height, weight (such "
                        "as font.BOLD), and styles (font.SERIF, ITALIC, OBLIQUE, MONOSPACED) match; 0 if none.",
-                       "z = font.by_style('SAXFONT', 6, 12, font.NORMAL, font.BOLD, 0, font.ITALIC)", (CE,),
+                       "z = font.by_style('MYFONT', 6, 12, font.NORMAL, font.BOLD, 0, font.ITALIC)", (CE,),
                        True, _FONT_NOTE),
         "height": _m("height(font) -> int", "A line's height in pixels, with the font's space above and below.",
                      "z = font.height(x)", (CE,), True, _FONT_NOTE),
         "width": _m("width(font, code) -> int", "A character's width in pixels; 0 if the font lacks it.",
                     "z = font.width(x, 65)", (CE,), True, _FONT_NOTE),
-        "text": _m("text(font, text, x, y, color=BLACK, background=-1) -> int", "Draw a string literal, or "
-                   "text at an address, from pixel x, y; returns the x after it. A background of -1 leaves "
-                   "what is behind.", "z = font.text(x, 'Hi', 2, y, font.BLUE)", (CE,), True, _FONT_NOTE),
-        "family_codes": _m("family_codes(pack, codes, start, limit) -> int",
-                           "Copy up to limit characters of a pack's family name into a module-level int "
-                           "array from index start; returns how many were copied, 0 if it has none.",
-                           "z = font.family_codes(x, CODES, 0, 2)", (CE,), True, _FONT_NOTE),
-        "codes": _m("codes(font, codes, start, count, x, y, color=BLACK) -> int",
-                    "Draw count character codes from a module-level int array, from index start, at pixel x, "
-                    "y; returns the x after them.", "z = font.codes(x, CODES, 0, 2, 4, y)", (CE,), True,
-                    _FONT_NOTE),
-        "codes_width": _m("codes_width(font, codes, start, count) -> int",
-                          "The width in pixels of count codes from an int array.",
-                          "z = font.codes_width(x, CODES, 0, 2)", (CE,), True, _FONT_NOTE),
-        "text_width": _m("text_width(font, text) -> int", "The width of a string in pixels.",
-                        "z = font.text_width(x, 'Hi')", (CE,), True, _FONT_NOTE),
+        "text": _m("text(font, text, x, y, color=BLACK, background=-1, *, start=0, count=-1) -> int",
+                   "Draw text from pixel x, y and return the x after it: a string literal, the address of "
+                   "text, or a module-level int array of character codes (start and count pick part of it). "
+                   "A background of -1 leaves what is behind.", "z = font.text(x, 'Hi', 2, y, font.BLUE)",
+                   (CE,), True, _FONT_NOTE),
+        "text_width": _m("text_width(font, text, *, start=0, count=-1) -> int",
+                         "The width of text in pixels, given as for text().", "z = font.text_width(x, 'Hi')",
+                         (CE,), True, _FONT_NOTE),
         "paragraph": _m("paragraph(font, text, x, y, width, color=BLACK, background=-1) -> int",
                         "Draw text word-wrapped to lines of width pixels, breaking at newlines too; returns the "
                         "y below it.", "z = font.paragraph(x, 'Hello there', 2, y, 100)", (CE,), True,
@@ -265,6 +246,13 @@ API: dict[str, dict[str, Method]] = {
         "begin": _m("begin()", "Prepare the screen for drawing.", targets=(), note="use graphics.begin()"),
         "end": _m("end()", "Restore the OS screen state.", targets=(), note="use graphics.end()"),
     },
+}
+
+# storage and file are one library under two names.
+API["storage"] = {
+    name: Method(method.signature, method.doc, method.example.replace("file.", "storage."), method.targets,
+                 method.returns, method.note)
+    for name, method in API["file"].items()
 }
 
 # Importable only for the Flash App backend.

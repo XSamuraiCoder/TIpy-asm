@@ -27,7 +27,8 @@ from .flash_ce import (
 from ti84libs.keyboard import key_code
 
 INT, BOOL, STR, LIST, VOID = "int", "bool", "str", "list", "void"
-KNOWN_MODULES = ("graphics", "keyboard", "storage", "file", "math", "random", "graph")
+KNOWN_MODULES = ("graphics", "keyboard", "storage", "file", "math", "random", "graph", "color",
+                 "sprite", "font")
 CTYPES = {INT: "int32_t", BOOL: "int32_t", STR: "const char *", LIST: "ti84py_list"}
 ZERO = {INT: "0", BOOL: "0", STR: '""', LIST: "{0, 0}"}
 ZERO_EXPR = {**ZERO, LIST: "(ti84py_list){0, 0}"}

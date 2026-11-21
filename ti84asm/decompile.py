@@ -38,14 +38,18 @@ def read_variables(path: Path) -> list[dict]:
     raw = path.read_bytes()
     if raw[:8] not in (b"**TI83F*", b"**TI73**", b"**TI82**", b"**TI83**"):
         raise CompileError(f"{path} is not a TI variable file")
-    end = 55 + (raw[53] | raw[54] << 8)
+    if len(raw) < 55:
+        raise CompileError(f"{path} is cut off: its header is incomplete")
+    end = min(55 + (raw[53] | raw[54] << 8), len(raw))
     at, found = 55, []
-    while at + 4 <= min(end, len(raw)):
+    while at + 13 <= end:
         header = raw[at] | raw[at + 1] << 8
         length = raw[at + 2] | raw[at + 3] << 8
         kind = raw[at + 4]
         name = raw[at + 5:at + 13].rstrip(b"\0")
         data_at = at + 2 + header + 2
+        if data_at + length > end:
+            raise CompileError(f"{path} is damaged: a variable runs past the end of the file")
         data = raw[data_at:data_at + length]
         found.append({"name": name.decode("latin-1"), "type": kind, "data": data})
         at = data_at + length
@@ -352,22 +356,25 @@ def hexdump(data: bytes) -> str:
 
 # ------------------------------------------------------------------ decompiling
 
-def decompile_variable(variable: dict) -> tuple[str, str]:
-    """(file suffix, text) for one variable."""
+def decompile_variable(variable: dict) -> list[tuple[str, str]]:
+    """(file suffix, text) pairs for one variable: an assembly program gives both .asm and .py."""
     kind, data = variable["type"], variable["data"]
     title = f"; {variable['name']}: {TYPE_NAMES.get(kind, f'type {kind:02X}h')}, {len(data)} bytes\n"
     if kind in PROGRAM_TYPES:
         body = _program_body(data)
-        if body[:2] == b"\xEF\x7B":
-            return ".asm", title + "; TI-84 Plus CE assembly program (eZ80, ADL mode)\n" + \
-                disassemble(body[2:], CE_ORIGIN, True)
-        if body[:2] == b"\xBB\x6D":
-            return ".asm", title + "; TI-83 Plus/84 Plus assembly program (Z80)\n" + \
-                disassemble(body[2:], CLASSIC_ORIGIN, False)
+        cpus = ((b"\xEF\x7B", CE_ORIGIN, True, "TI-84 Plus CE assembly program (eZ80, ADL mode)"),
+                (b"\xBB\x6D", CLASSIC_ORIGIN, False, "TI-83 Plus/84 Plus assembly program (Z80)"))
+        for magic, origin, adl, cpu in cpus:
+            if body[:2] == magic:
+                from .lift import lift_program
+
+                code = body[2:]
+                return [(".asm", f"{title}; {cpu}\n" + disassemble(code, origin, adl)),
+                        (".py", lift_program(code, origin, adl, variable["name"]))]
         source = detokenize(body)
         kind_name = "Axe source" if source.startswith(".") else "TI-BASIC"
-        return ".txt", f"{title[2:]}{kind_name}:\n\n{source}\n"
-    return ".txt", title[2:] + hexdump(data)
+        return [(".txt", f"{title[2:]}{kind_name}:\n\n{source}\n")]
+    return [(".txt", title[2:] + hexdump(data))]
 
 
 def add_arguments(parser: argparse.ArgumentParser) -> None:
@@ -381,13 +388,15 @@ def run(args: argparse.Namespace) -> int:
     if not variables:
         raise CompileError(f"{args.file} holds no variables")
     for variable in variables:
-        suffix, text = decompile_variable(variable)
-        if args.output is not None and str(args.output) == "-":
-            print(text)
-            continue
-        name = re.sub(r"[^\w]", "_", variable["name"]) or args.file.stem
-        output = args.output if args.output is not None and len(variables) == 1 else \
-            args.file.with_name(f"{name}{suffix}")
-        output.write_text(text, encoding="utf-8")
-        print(f"Wrote {output}")
+        for suffix, text in decompile_variable(variable):
+            if args.output is not None and str(args.output) == "-":
+                print(text)
+                continue
+            name = re.sub(r"[^\w]", "_", variable["name"]) or args.file.stem
+            if args.output is not None and len(variables) == 1:
+                output = args.output.with_suffix(suffix)
+            else:
+                output = args.file.with_name(f"{name}{suffix}")
+            output.write_text(text, encoding="utf-8")
+            print(f"Wrote {output}")
     return 0

@@ -4,7 +4,9 @@ FontLibC itself draws into GraphX's 8-bit palette screen, and TIpy programs use
 the OS's 16-bit color screen, so this library reads the font packs and draws
 their glyphs itself. A font is the address of one font in a pack, and a pack is
 the address of a pack's data: load() and friends take a pack's AppVar name as a
-string literal, or a pack that find() returned.
+string literal, or a pack that find() returned. Text is a string literal, the
+address of text (such as family()'s), or a module-level int array of character
+codes, of which start= and count= pick a part.
 """
 
 from __future__ import annotations
@@ -26,10 +28,12 @@ CONSTANTS = {
 
 _ARITY = {"default": (0,), "load": (1, 2), "count": (1,), "find": (0, 1), "family": (1,), "by_style": (7,),
           "height": (1,), "width": (2,), "char": (4, 5), "text": (4, 5, 6), "text_width": (2,),
-          "paragraph": (5, 6, 7), "codes": (6, 7), "codes_width": (4,),
-          "family_codes": (4,)}
-_KEYWORDS = {"codes": ("color",), "char": ("color",), "text": ("color", "background"), "paragraph": ("color", "background")}
-_POSITIONS = {"codes": 6, "char": 4, "text": 4, "paragraph": 5}
+          "paragraph": (5, 6, 7)}
+# Keywords that may also be given by position, in order, after the positional ones.
+_KEYWORDS = {"char": ("color",), "text": ("color", "background"), "paragraph": ("color", "background")}
+_POSITIONS = {"char": 4, "text": 4, "paragraph": 5}
+# Keywords for text kept in an int array.
+_ARRAY_KEYWORDS = {"text": ("start", "count"), "text_width": ("start", "count")}
 
 
 def constant(name: str) -> int | None:
@@ -62,6 +66,13 @@ def _text(compiler, node: ast.expr) -> ast.expr:
     return node
 
 
+def _array(compiler, node: ast.expr) -> tuple[str, int] | None:
+    """(label, length) when node names a module-level int array of character codes."""
+    if isinstance(node, ast.Name) and isinstance(compiler.constants.get(node.id), (ast.List, ast.Tuple)):
+        return compiler._array(node.id)
+    return None
+
+
 def _paint(compiler, node: ast.expr | None, default: int) -> ast.expr:
     if node is None:
         return ast.Constant(default)
@@ -74,8 +85,11 @@ def _paint(compiler, node: ast.expr | None, default: int) -> ast.expr:
 def emit_call(compiler, node: ast.Call) -> None:
     method = node.func.attr
     args = list(node.args)
-    named = {}
+    named, span = {}, {}
     for keyword in node.keywords:
+        if keyword.arg in _ARRAY_KEYWORDS.get(method, ()):
+            span[keyword.arg] = keyword.value
+            continue
         if keyword.arg not in _KEYWORDS.get(method, ()):
             raise CompileError(f"font.{method}() has no keyword {keyword.arg}")
         named[keyword.arg] = keyword.value
@@ -111,28 +125,29 @@ def emit_call(compiler, node: ast.Call) -> None:
     elif method == "char":
         color = _paint(compiler, args[4] if len(args) == 5 else None, _default_color(compiler))
         compiler.call_raw("_rt_font_glyph", [*args[:4], color])
-    elif method == "text":
-        color = _paint(compiler, args[4] if len(args) > 4 else None, _default_color(compiler))
-        background = _paint(compiler, args[5] if len(args) > 5 else None, -1)
-        compiler.call_function("_tipy_font_text", [args[0], _text(compiler, args[1]), args[2], args[3], color,
-                                                   background])
-    elif method == "family_codes":
-        if not isinstance(args[1], ast.Name):
-            raise CompileError("font.family_codes() takes a module-level int array, such as NAME")
-        label, _length = compiler._array(args[1].id)
-        compiler.call_function("_tipy_font_family_codes", [args[0], LabelRef(label), *args[2:4]])
-    elif method in ("codes", "codes_width"):
-        array = args[1]
-        if not isinstance(array, ast.Name):
-            raise CompileError(f"font.{method}() takes a module-level int array, such as CODES")
-        label, _length = compiler._array(array.id)
-        if method == "codes":
-            color = _paint(compiler, args[6] if len(args) == 7 else None, _default_color(compiler))
-            compiler.call_function("_tipy_font_codes", [args[0], LabelRef(label), *args[2:6], color])
+    elif method in ("text", "text_width"):
+        array = _array(compiler, args[1])
+        if span and array is None:
+            raise CompileError(f"font.{method}() takes start= and count= only for text in an int array")
+        if method == "text":
+            color = _paint(compiler, args[4] if len(args) > 4 else None, _default_color(compiler))
+            background = _paint(compiler, args[5] if len(args) > 5 else None, -1)
+            if array is None:
+                compiler.call_function("_tipy_font_text", [args[0], _text(compiler, args[1]), args[2], args[3],
+                                                           color, background])
+            else:
+                label, length = array
+                compiler.call_function("_tipy_font_array", [args[0], LabelRef(label), ast.Constant(length),
+                                                            span.get("start", ast.Constant(0)),
+                                                            span.get("count", ast.Constant(-1)),
+                                                            args[2], args[3], color, background])
+        elif array is None:
+            compiler.call_function("_tipy_font_text_width", [args[0], _text(compiler, args[1])])
         else:
-            compiler.call_function("_tipy_font_codes_width", [args[0], LabelRef(label), *args[2:4]])
-    elif method == "text_width":
-        compiler.call_function("_tipy_font_text_width", [args[0], _text(compiler, args[1])])
+            label, length = array
+            compiler.call_function("_tipy_font_array_width", [args[0], LabelRef(label), ast.Constant(length),
+                                                              span.get("start", ast.Constant(0)),
+                                                              span.get("count", ast.Constant(-1))])
     elif method == "paragraph":
         color = _paint(compiler, args[5] if len(args) > 5 else None, _default_color(compiler))
         background = _paint(compiler, args[6] if len(args) > 6 else None, -1)

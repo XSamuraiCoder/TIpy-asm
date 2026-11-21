@@ -48,6 +48,11 @@ LIBRARY_C = {
         "text": ("ti84py_gfx_text", [("string", "s", None), _X, _Y, ("origin", "o", 0)], "v"),
         "text_int": ("ti84py_gfx_text_int", _p("value", "x", "y", color=False), "v"),
         "wait_key": ("ti84py_wait_key", [], "v"),
+        "char": ("ti84py_gfx_char", [*_p("code", "x", "y", color=False), ("color", "i", 0),
+                                     ("background", "i", 0xFFFF)], "v"),
+        "delay": ("ti84py_gfx_delay", _p("count", color=False), "v"),
+        "scroll": ("ti84py_gfx_scroll", [*_p("x", "y", "width", "height", "dy", color=False),
+                                         ("fill", "i", -1)], "v"),
         "save_cursor": ("ti84py_gfx_save_cursor", _p("x", "y", color=False), "v"),
         "restore_cursor": ("ti84py_gfx_restore_cursor", [], "v"),
         "width": ("=320", [], "i"),
@@ -58,10 +63,30 @@ LIBRARY_C = {
         "get": ("=(int32_t)os_GetCSC()", [], "i"),
         "is_down": ("ti84py_kb_is_down", _p("key", color=False), "b"),
     },
-    "ti84.storage": {
-        "create": ("ti84py_storage_create", [("name", "n", None), ("size", "i", None)], "v"),
-        "read_byte": ("ti84py_storage_read_byte", [("name", "n", None), ("offset", "i", None)], "i"),
-        "write_byte": ("ti84py_storage_write_byte", [("name", "n", None), ("offset", "i", None), ("value", "i", None)], "v"),
+    "ti84.color": {
+        "from_rgb": ("ti84py_color_from_rgb", _p("r", "g", "b", color=False), "i"),
+        "to_mono": ("ti84py_color_to_mono", _p("color", color=False), "i"),
+        "from_mono": ("ti84py_color_from_mono", _p("mono", color=False), "i"),
+        "is_valid": ("ti84py_color_is_valid", _p("color", color=False), "b"),
+        "invert": ("ti84py_color_invert", _p("color", color=False), "i"),
+        "to_grayscale": ("ti84py_color_to_grayscale", _p("color", color=False), "i"),
+    },
+    "ti84.sprite": {
+        "load": ("ti84py_sprite_load", [("name", "n", None), ("index", "i", 0)], "i"),
+        "draw": ("ti84py_sprite_draw", _p("sprite", "x", "y", color=False), "v"),
+        "width": ("ti84py_sprite_width", _p("sprite", color=False), "i"),
+        "height": ("ti84py_sprite_height", _p("sprite", color=False), "i"),
+    },
+    "ti84.font": {
+        "default": ("ti84py_font_default", [], "i"),
+        "load": ("ti84py_font_load", [("name", "n", None), ("index", "i", 0)], "i"),
+        "count": ("ti84py_font_count", [("name", "n", None)], "i"),
+        "height": ("ti84py_font_height", _p("font", color=False), "i"),
+        "width": ("ti84py_font_width", _p("font", "code", color=False), "i"),
+        "char": ("ti84py_font_char", [*_p("font", "code", "x", "y", color=False), ("color", "i", 0)], "i"),
+        "text": ("ti84py_font_text", [("font", "i", None), ("text", "s", None), *_p("x", "y", color=False),
+                                      ("color", "i", 0), ("background", "i", -1)], "i"),
+        "text_width": ("ti84py_font_text_width", [("font", "i", None), ("text", "s", None)], "i"),
     },
     "ti84.file": {
         "exists": ("ti84py_file_exists", [("name", "n", None)], "b"),
@@ -94,66 +119,10 @@ LIBRARY_C = {
         name: (f"=ti84py_graph_{name}()", [], "v")
         for name in GRAPH_API
     },
-    "ti84.font": {
-        "load": ("ti84py_font_load", [("name", "n", None)], "v"),
-        "draw_char": ("ti84py_font_draw_char", _p("font", "char", "x", "y"), "v"),
-        "draw_text": ("ti84py_font_draw_text", _p("font", "x", "y"), "v"),
-        "char_width": ("ti84py_font_char_width", _p("font", "char", color=False), "i"),
-        "string_width": ("ti84py_font_string_width", _p("font", color=False), "i"),
-        "height": ("ti84py_font_height", _p("font", color=False), "i"),
-        "baseline": ("ti84py_font_baseline", _p("font", color=False), "i"),
-        "BLACK": ("=0x0000", [], "i"),
-        "WHITE": ("=0xFFFF", [], "i"),
-        "RED": ("=0xF800", [], "i"),
-        "GREEN": ("=0x07E0", [], "i"),
-        "BLUE": ("=0x001F", [], "i"),
-        "YELLOW": ("=0xFFE0", [], "i"),
-        "CYAN": ("=0x07FF", [], "i"),
-        "MAGENTA": ("=0xF81F", [], "i"),
-        "ORANGE": ("=0xFD20", [], "i"),
-        "PURPLE": ("=0x801F", [], "i"),
-        "GRAY": ("=0x8410", [], "i"),
-    },
-    "ti84.sprite": {
-        "load": ("ti84py_sprite_load", [("name", "n", None)], "v"),
-        "draw": ("ti84py_sprite_draw", _p("sprite", "x", "y"), "v"),
-        "draw_scale": ("ti84py_sprite_draw_scale", _p("sprite", "x", "y", "scale_x", "scale_y"), "v"),
-        "dimensions": ("ti84py_sprite_dimensions", _p("sprite", color=False), "i"),
-        "FORMAT_RGB565": ("=0", [], "i"),
-        "FORMAT_PALETTE": ("=1", [], "i"),
-    },
-    "ti84.fileioc": {
-        "open": ("ti84py_fileioc_open", [("name", "n", None)], "i"),
-        "close": ("ti84py_fileioc_close", _p("handle", color=False), "v"),
-        "read": ("ti84py_fileioc_read", _p("handle", "size"), "i"),
-        "write": ("ti84py_fileioc_write", _p("handle", "data"), "v"),
-        "size": ("ti84py_fileioc_size", [("name", "n", None)], "i"),
-        "exists": ("ti84py_fileioc_exists", [("name", "n", None)], "b"),
-        "delete": ("ti84py_fileioc_delete", [("name", "n", None)], "v"),
-        "create": ("ti84py_fileioc_create", [("name", "n", None), ("size", "i", None)], "v"),
-    },
-    "ti84.color": {
-        "from_rgb": ("ti84py_color_from_rgb", _p("r", "g", "b", color=False), "i"),
-        "to_rgb": ("ti84py_color_to_rgb", _p("color", color=False), "i"),
-        "to_grayscale": ("ti84py_color_to_grayscale", _p("color", color=False), "i"),
-        "to_mono": ("ti84py_color_to_mono", _p("color", color=False), "i"),
-        "from_mono": ("ti84py_color_from_mono", _p("mono", color=False), "i"),
-        "invert": ("ti84py_color_invert", _p("color", color=False), "i"),
-        "blend": ("ti84py_color_blend", _p("color1", "color2", "factor", color=False), "i"),
-        "is_valid": ("ti84py_color_is_valid", _p("color", color=False), "b"),
-        "BLACK": ("=0x0000", [], "i"),
-        "WHITE": ("=0xFFFF", [], "i"),
-        "RED": ("=0xF800", [], "i"),
-        "GREEN": ("=0x07E0", [], "i"),
-        "BLUE": ("=0x001F", [], "i"),
-        "YELLOW": ("=0xFFE0", [], "i"),
-        "CYAN": ("=0x07FF", [], "i"),
-        "MAGENTA": ("=0xF81F", [], "i"),
-        "ORANGE": ("=0xFD20", [], "i"),
-        "PURPLE": ("=0x801F", [], "i"),
-        "GRAY": ("=0x8410", [], "i"),
-    },
 }
+
+# storage and file are one library under two names.
+LIBRARY_C["ti84.storage"] = LIBRARY_C["ti84.file"]
 
 # Back-compat arity table: module -> name -> (min args, max args).
 LIBRARY_API = {
@@ -521,6 +490,185 @@ static int32_t ti84py_random_range(int32_t limit)
 
 
 RUNTIME_EXTRA_C = r'''
+/* ---- color ---- */
+static int32_t ti84py_color_from_rgb(int32_t r, int32_t g, int32_t b)
+{ return (((r & 255) >> 3) << 11) | (((g & 255) >> 2) << 5) | ((b & 255) >> 3); }
+static int32_t ti84py_color_luma(int32_t c)
+{ return ((((c >> 11) & 31) * 77 + ((c >> 5) & 63) * 75 + (c & 31) * 29) >> 8); }
+static int32_t ti84py_color_to_mono(int32_t c) { return ti84py_color_luma(c) >= 16 ? 0 : 1; }
+static int32_t ti84py_color_from_mono(int32_t m) { return m ? 0x0000 : 0xFFFF; }
+static int32_t ti84py_color_is_valid(int32_t c) { return c >= 0 && c <= 0xFFFF; }
+static int32_t ti84py_color_invert(int32_t c) { return (c ^ 0xFFFF) & 0xFFFF; }
+static int32_t ti84py_color_to_grayscale(int32_t c)
+{
+    int32_t l = ti84py_color_luma(c) & 31;
+    return (l << 11) | (l << 6) | l;
+}
+
+/* ---- more graphics ---- */
+static uint16_t ti84py_os_color(int32_t c) { return (uint16_t)(c & 0xFFFF); }
+static void ti84py_gfx_char(int32_t code, int32_t x, int32_t y, int32_t color, int32_t background)
+{
+    char text[2];
+    ti84py_gfx_begin();
+    if (x < 0 || y < 0 || x >= 320 || y >= 240) return;
+    text[0] = (char)code; text[1] = 0;
+    os_SetDrawFGColor(ti84py_os_color(color));
+    os_SetDrawBGColor(ti84py_os_color(background));
+    (void)os_FontDrawText(text, (uint16_t)x, (uint8_t)y);
+    os_SetDrawFGColor(0);              /* graphics.text draws black on white */
+    os_SetDrawBGColor(0xFFFF);
+}
+static void ti84py_gfx_delay(int32_t count)
+{
+    volatile int32_t i;
+    for (i = 0; i < count * 8; ++i) { }
+}
+static void ti84py_gfx_scroll(int32_t x, int32_t y, int32_t w, int32_t h, int32_t dy, int32_t fill)
+{
+    int32_t n, row, col;
+    ti84py_gfx_begin();
+    if (x < 0) { w += x; x = 0; }
+    if (y < 0) { h += y; y = 0; }
+    if (x + w > 320) w = 320 - x;
+    if (y + h > 240) h = 240 - y;
+    if (w <= 0 || h <= 0 || dy == 0) return;
+    n = dy > 0 ? dy : -dy;
+    if (n < h) {
+        if (dy > 0) {
+            for (row = 0; row < h - n; ++row)
+                for (col = 0; col < w; ++col)
+                    ti84py_vram[(y + row) * 320 + x + col] = ti84py_vram[(y + row + n) * 320 + x + col];
+        } else {
+            for (row = h - 1; row >= n; --row)
+                for (col = 0; col < w; ++col)
+                    ti84py_vram[(y + row) * 320 + x + col] = ti84py_vram[(y + row - n) * 320 + x + col];
+        }
+    } else {
+        n = h;
+    }
+    if (fill >= 0) ti84py_gfx_fill_rect(x, dy > 0 ? y + h - n : y, w, n, fill);
+}
+
+/* ---- sprites: AppVars of u16 width, u16 height, then RGB565 pixels; 0 is transparent ---- */
+static int32_t ti84py_sprite_load(const char *name, int32_t index)
+{
+    var_t *var = os_GetAppVarData(name, 0);
+    const uint8_t *p;
+    int32_t left, step;
+    if (!var || index < 0) return 0;
+    p = var->data; left = var->size;
+    for (;;) {
+        if (left < 4) return 0;
+        step = 4 + (int32_t)(p[0] | (p[1] << 8)) * (int32_t)(p[2] | (p[3] << 8)) * 2;
+        if (step > left) return 0;     /* a truncated sprite is not drawn */
+        if (index-- == 0) return (int32_t)(uintptr_t)p;
+        p += step; left -= step;
+    }
+}
+static int32_t ti84py_sprite_width(int32_t sprite)
+{ const uint8_t *p = (const uint8_t *)(uintptr_t)sprite; return p ? p[0] | (p[1] << 8) : 0; }
+static int32_t ti84py_sprite_height(int32_t sprite)
+{ const uint8_t *p = (const uint8_t *)(uintptr_t)sprite; return p ? p[2] | (p[3] << 8) : 0; }
+static void ti84py_sprite_draw(int32_t sprite, int32_t x, int32_t y)
+{
+    const uint8_t *p = (const uint8_t *)(uintptr_t)sprite;
+    int32_t w, h, row, col;
+    if (!p) return;
+    ti84py_gfx_begin();
+    w = p[0] | (p[1] << 8); h = p[2] | (p[3] << 8);
+    for (row = 0; row < h; ++row) {
+        if (y + row < 0 || y + row >= 240) continue;
+        for (col = 0; col < w; ++col) {
+            const uint8_t *px = p + 4 + (row * w + col) * 2;
+            uint16_t c = (uint16_t)(px[0] | (px[1] << 8));
+            if (c && x + col >= 0 && x + col < 320) ti84py_vram[(y + row) * 320 + x + col] = c;
+        }
+    }
+}
+
+/* ---- fonts: FontLibC fonts, as convfont and font assets write them ---- */
+static int32_t ti84py_font_u24(const uint8_t *p) { return p[0] | (p[1] << 8) | ((int32_t)p[2] << 16); }
+static const uint8_t *ti84py_font_pack(const char *name)
+{
+    static const char magic[8] = {'F', 'O', 'N', 'T', 'P', 'A', 'C', 'K'};
+    var_t *var = os_GetAppVarData(name, 0);
+    int i;
+    if (!var || var->size < 12) return 0;
+    for (i = 0; i < 8; ++i) if (var->data[i] != (uint8_t)magic[i]) return 0;
+    if (12 + var->data[11] * 3 > var->size) return 0;
+    for (i = 0; i < var->data[11]; ++i)
+        if (ti84py_font_u24(var->data + 12 + i * 3) + 13 > var->size) return 0;
+    return var->data;
+}
+static int32_t ti84py_font_count(const char *name)
+{ const uint8_t *pack = ti84py_font_pack(name); return pack ? pack[11] : 0; }
+static int32_t ti84py_font_load(const char *name, int32_t index)
+{
+    const uint8_t *pack = ti84py_font_pack(name), *font;
+    if (!pack || index < 0 || index >= pack[11]) return 0;
+    font = pack + ti84py_font_u24(pack + 12 + index * 3);
+    return font[0] == 0 ? (int32_t)(uintptr_t)font : 0;
+}
+static int32_t ti84py_font_height(int32_t handle)
+{
+    const uint8_t *font = (const uint8_t *)(uintptr_t)handle;
+    return font ? font[1] + font[11] + font[12] : 0;
+}
+static int32_t ti84py_font_glyph(const uint8_t *font, int32_t code)
+{
+    int32_t total = font[2] ? font[2] : 256, index = (code & 255) - font[3];
+    return index >= 0 && index < total ? index : -1;
+}
+static int32_t ti84py_font_width(int32_t handle, int32_t code)
+{
+    const uint8_t *font = (const uint8_t *)(uintptr_t)handle;
+    int32_t index;
+    if (!font) return 0;
+    index = ti84py_font_glyph(font, code);
+    return index < 0 ? 0 : font[ti84py_font_u24(font + 4) + index];
+}
+static int32_t ti84py_font_char(int32_t handle, int32_t code, int32_t x, int32_t y, int32_t color)
+{
+    const uint8_t *font = (const uint8_t *)(uintptr_t)handle, *rows;
+    int32_t index, width, columns, row, col, entry;
+    if (!font) return 0;
+    index = ti84py_font_glyph(font, code);
+    if (index < 0) return 0;
+    ti84py_gfx_begin();
+    width = font[ti84py_font_u24(font + 4) + index];
+    columns = (width + 7) >> 3;
+    entry = font[ti84py_font_u24(font + 7) + index * 2] | (font[ti84py_font_u24(font + 7) + index * 2 + 1] << 8);
+    rows = font + entry + 2;           /* each row's last byte; rows run right to left */
+    y += font[11];
+    for (row = 0; row < font[1]; ++row, rows += columns) {
+        if (y + row < 0 || y + row >= 240) continue;
+        for (col = 0; col < width; ++col) {
+            uint8_t bits = *(rows - (col >> 3));
+            if ((bits & (0x80 >> (col & 7))) && x + col >= 0 && x + col < 320)
+                ti84py_vram[(y + row) * 320 + x + col] = (uint16_t)color;
+        }
+    }
+    return width;
+}
+static int32_t ti84py_font_text(int32_t handle, const char *text, int32_t x, int32_t y, int32_t color,
+                                int32_t background)
+{
+    for (; *text; ++text) {
+        int32_t code = (uint8_t)*text;
+        if (background >= 0)
+            ti84py_gfx_fill_rect(x, y, ti84py_font_width(handle, code), ti84py_font_height(handle), background);
+        x += ti84py_font_char(handle, code, x, y, color);
+    }
+    return x;
+}
+static int32_t ti84py_font_text_width(int32_t handle, const char *text)
+{
+    int32_t width = 0;
+    for (; *text; ++text) width += ti84py_font_width(handle, (uint8_t)*text);
+    return width;
+}
+
 /* ---- Python language support: lists, strings, integer semantics, print ---- */
 typedef struct { int32_t *data; int32_t len; } ti84py_list;
 static ti84py_list ti84py_mklist(int32_t *buf, int32_t n, const int32_t *src)
@@ -749,6 +897,11 @@ MAIN_OPEN = "int main(void)\n{"
 
 def runtime_header(include_graph: bool = False) -> list[str]:
     """Return compiler-owned CE routines (everything before main) as C lines."""
+    from ti84libs.fontdata import font_bytes
+
     text = "#include <stdint.h>\n"
     text += RUNTIME_C + RUNTIME_EXTRA_C
+    data = ",".join(str(byte) for byte in font_bytes())
+    text += f"static const uint8_t ti84py_font_builtin[] = {{{data}}};\n"
+    text += "static int32_t ti84py_font_default(void) { return (int32_t)(uintptr_t)ti84py_font_builtin; }\n"
     return text.splitlines()

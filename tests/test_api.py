@@ -127,5 +127,40 @@ class ErrorMessageTests(unittest.TestCase):
         self.assertIn("did you mean 'score'", self.error("score = 1\nx = scor + 1\n"))
 
 
+class FlashTableTests(unittest.TestCase):
+    """The Flash App table may only name libraries, methods, and C the rest of TIpy has."""
+
+    def test_every_flash_library_and_method_is_in_the_api(self):
+        from ti84asm.cgen import KNOWN_MODULES
+        from ti84asm.flash_ce import LIBRARY_C
+
+        for module, functions in LIBRARY_C.items():
+            library = module.removeprefix("ti84.")
+            self.assertIn(library, KNOWN_MODULES, module)
+            self.assertIn(library, API, module)
+            for name, (_c, params, _ret) in functions.items():
+                if library == "graphics" and name in ("width", "height") and not params:
+                    continue                    # graphics.width and graphics.height are constants
+                self.assertIn(name, API[library], f"{module}.{name}")
+
+    def test_every_flash_c_function_is_defined(self):
+        import re
+
+        from ti84asm.flash_ce import LIBRARY_C, runtime_header
+
+        header = "\n".join(runtime_header())
+        defined = set(re.findall(r"\b(ti84py_\w+)\s*\([^;{]*\)\s*\{", header))
+        for module, functions in LIBRARY_C.items():
+            for name, (c, _params, _ret) in functions.items():
+                for used in re.findall(r"\bti84py_\w+(?=\s*\()", c if c.startswith("=") else c + "("):
+                    self.assertIn(used, defined, f"{module}.{name} calls {used}")
+
+    def test_storage_and_file_are_one_library(self):
+        from ti84asm.flash_ce import LIBRARY_C
+
+        self.assertEqual(set(API["storage"]), set(API["file"]))
+        self.assertIs(LIBRARY_C["ti84.storage"], LIBRARY_C["ti84.file"])
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -98,6 +98,7 @@ class Sim:
         self.link_in: list[int] = []
         self.link_out: list[int] = []
         self.link_connected = True
+        self.has_usb = False         # a TI-83 Plus: serial uses the link port
         self.error_handlers: list[tuple[int, int]] = []
         self._jump_to: int | None = None
         self.a = 0xAA
@@ -454,6 +455,9 @@ class Sim:
             self.port_mask = self.a
         elif m == "in" and ops[1] == "(0)":
             self.a = 2 if self.link_in else 3
+        elif m == "in" and ops[1] in ("(2)", "(21h)", "($21)", "(0x21)"):
+            # Model ports: port 2 bit 7 and port 21h bits 0-1 are set on an 84 Plus/SE (USB).
+            self.a = (0x80 if ops[1] == "(2)" else 0x01) if self.has_usb else 0
         elif m == "in":
             pressed = 0
             for code in self.held:
