@@ -4,8 +4,8 @@ sprite
 .. py:module:: ti84.sprite
 
 Draw sprites stored in AppVars, separately from your program. This keeps large images
-out of the program and works on archived AppVars. This library needs the CE target and
-is not available in Flash Apps.
+out of the program and works on archived AppVars. This library needs the CE: the CE assembly
+target or a Flash App.
 
 For sprites built into your program, on either assembly target, use
 :py:func:`graphics.sprite() <ti84.graphics.sprite>`. A PNG asset with

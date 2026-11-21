@@ -192,8 +192,8 @@ keys, as convfont's ``-N``, ``-A``, ``-C``, ``-D``, and ``-V`` options:
    [[tool.tipy.assets]]
    source = ["fonts/drsans-07-normal.convfont", "fonts/drsans-07-bold.convfont"]
    kind = "font"
-   name = "SAXFONT"
-   family = "DrSans"            # font.family() and font.family_codes() read this
+   name = "MYFONT"
+   family = "DrSans"            # font.family() reads this
    author = "Your name"
    version = "1.0"
 

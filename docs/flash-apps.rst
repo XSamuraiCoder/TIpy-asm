@@ -86,6 +86,19 @@ app's name and AppVar prefix filled in.
 None of this has been run on real hardware by the test suite, which uses a simulator.
 Test a new build in `CEmu <https://ce-programming.github.io/CEmu/>`_ first.
 
+Libraries
+---------
+
+A Flash App imports the same ``ti84`` libraries as an assembly program, with the
+same methods and arguments: ``graphics``, ``keyboard``, ``math``, ``random``,
+``color``, ``sprite``, ``font``, ``storage``, and ``file``. A method the Flash App
+backend does not have yet, such as ``font.paragraph()``, is a build error that says
+so; ``tipy-asm api NAME`` lists ``flash`` among each method's targets. Its fonts are
+the same FontLibC fonts, and ``font.default()`` is the same built-in font.
+
+``usb`` and ``serial`` are assembly-only. ``ti84.graph`` is the one Flash-only
+library.
+
 Settings
 --------
 

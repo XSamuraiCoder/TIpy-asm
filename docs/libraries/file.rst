@@ -3,12 +3,9 @@ file
 
 .. py:module:: ti84.file
 
-AppVar access with extra helpers. This library has the same behavior and
-:doc:`error handling <storage>` as ``storage`` on assembly targets, and adds
-:py:func:`clear` and 16-bit values.
-
-Unlike ``storage``, all of its methods also exist on the Flash App target, so use it
-for code shared with a Flash App.
+AppVar access. ``file`` and :doc:`storage <storage>` are one library under two
+names: the same methods, with the same :doc:`error handling <storage>`, on every
+target, the Flash App backend included.
 
 .. code-block:: python
 

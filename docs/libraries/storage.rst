@@ -3,7 +3,9 @@ storage
 
 .. py:module:: ti84.storage
 
-Save bytes in AppVars, which stay on the calculator between runs.
+Save bytes in AppVars, which stay on the calculator between runs. ``storage`` and
+:doc:`file <file>` are one library under two names, with the same methods on every
+target.
 
 .. code-block:: python
 

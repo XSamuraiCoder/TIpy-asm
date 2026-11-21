@@ -3,9 +3,7 @@ color
 
 .. py:module:: ti84.color
 
-Color constants and conversions for the assembly targets. This library is not
-available in Flash Apps, which use the constants in
-:doc:`graphics <graphics>`.
+Color constants and conversions, on every target, Flash Apps included.
 
 Calls with constant arguments are worked out at compile time, so they add no conversion
 code to your program:

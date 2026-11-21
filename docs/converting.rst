@@ -96,12 +96,39 @@ Decompiling a program
    tipy-asm decompile GAME.8xp
 
 - **TI-BASIC or Axe source** comes out as text, token by token, in ``GAME.txt``.
-- **An assembly program** comes out as a disassembly in ``GAME.asm``: Z80 for the TI-83
-  Plus and 84 Plus, or eZ80 in ADL mode for the CE. Jump and call targets get ``L_``
-  labels, and OS routines are named, such as ``ti.PutS`` on the CE and
-  ``bcall(_PutS)`` on classic calculators.
+- **An assembly program** comes out twice:
+
+  - as a disassembly in ``GAME.asm``: Z80 for the TI-83 Plus and 84 Plus, or eZ80 in ADL
+    mode for the CE, with ``L_`` labels at jump and call targets and named OS routines,
+    such as ``ti.PutS`` and ``bcall(_PutS)``;
+  - as Python in ``GAME.py``, which the next section describes.
 - **Anything else**, such as an AppVar, comes out as a hex dump.
 
 ``-o -`` prints the result instead of writing a file. A disassembler cannot tell code
 from data, so a program's tables and strings come out as instructions too; the bytes
 on each line show what is really there.
+
+Assembly as Python
+~~~~~~~~~~~~~~~~~~
+
+Machine code has no variables, types, or loops, only registers, memory, and jumps, so
+the Python keeps that shape while reading as code:
+
+- **Only code.** The lifter follows the program from its start through jumps and calls,
+  so data is not mistaken for instructions. The file says how many bytes were left out.
+- **Functions.** Each call target is a function. One with no jumps inside is straight
+  Python; one with jumps runs through a ``goto`` dispatcher, since Python has no goto.
+- **Registers and memory.** ``a``, ``bc``, ``de``, ``hl``, ``ix``, ``iy``, and ``sp`` are
+  variables, and the 8-bit halves are read and written inside their pairs. Memory is
+  ``mem8[...]`` and ``memw[...]``, with 16-bit words on classic calculators and 24-bit
+  words on the CE.
+- **Conditions.** A compare followed by a jump becomes ``if a == 5:`` or ``if hl == 0:``.
+  Flags are kept in ``zf``, ``cf``, ``sf``, and ``pvf`` only when something in between would
+  change what they test.
+- **OS calls.** These are named: ``ti.PutS()`` on the CE and ``bcall("PutS")`` on classic
+  calculators. OS RAM addresses keep their include-file names.
+- **Anything else.** An instruction the lifter does not model stays as ``asm("...")``.
+
+The file is plain Python, with small stand-ins for memory and the OS at the end. It
+shows what the program does; it is not a TIpy program, because TIpy's Python has no
+registers or raw memory.

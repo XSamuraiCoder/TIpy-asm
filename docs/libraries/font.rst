@@ -3,7 +3,10 @@ font
 
 .. py:module:: ti84.font
 
-Draw text in FontLibC fonts on the CE. A font comes from a font pack AppVar, the
+Draw text in FontLibC fonts on the CE, in assembly programs and Flash Apps. Flash
+Apps have the core methods: :py:func:`default`, :py:func:`load`, :py:func:`count`,
+:py:func:`height`, :py:func:`width`, :py:func:`char`, :py:func:`text`, and
+:py:func:`text_width` with a string. A font comes from a font pack AppVar, the
 kind TIpy-asm's converter writes: a ``font`` :doc:`asset <../projects>`, or
 ``tipy-asm convfont`` (see :ref:`converting-fonts`).
 
@@ -64,9 +67,9 @@ Text in arrays
 --------------
 
 Text that a program builds or receives, such as a chat message, lives in an int
-array of character codes. :py:func:`codes` draws ``count`` codes from a module-level
-array, starting at index ``start``, in one call, and returns the x after them.
-:py:func:`codes_width` measures them.
+array of character codes. :py:func:`text` and :py:func:`text_width` take a
+module-level array in place of a string; ``start=`` and ``count=`` pick a part of it,
+and both stay inside the array, so a ``count`` past its end stops at the end.
 
 .. code-block:: python
 
@@ -76,7 +79,7 @@ array, starting at index ``start``, in one call, and returns the x after them.
    length = 0
    # ... fill message with codes, and set length ...
    f = font.default()
-   x = font.codes(f, message, 0, length, 4, 100, graphics.BLACK)
+   x = font.text(f, message, 4, 100, graphics.BLACK, count=length)
 
 Font packs on the calculator
 ----------------------------
@@ -96,9 +99,6 @@ whatever its name, so a program can offer every font the user has sent:
            font.text(font.load(pack), name, 4, 4 + n * 12, graphics.BLACK)
        n += 1
        pack = font.find(n)
-
-To keep the name with other text, :py:func:`family_codes` copies it into an int
-array of character codes, for :py:func:`codes` to draw later.
 
 :py:func:`load`, :py:func:`count`, and :py:func:`by_style` take a pack from
 :py:func:`find`, or a pack's AppVar name as a string literal.

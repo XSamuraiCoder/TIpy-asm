@@ -34,15 +34,15 @@ is available. Nothing compiles to code that silently does nothing.
    * - :doc:`random`
      - Pseudo-random integers
    * - :doc:`storage`
-     - AppVar bytes
+     - AppVar bytes and 16-bit values; the same library as ``file``
    * - :doc:`file`
-     - AppVar bytes and 16-bit values
+     - The same library as ``storage``
    * - :doc:`sprite`
      - Sprites stored in AppVars
    * - :doc:`color`
      - Color constants and conversions
    * - :doc:`font`
-     - Color constants
+     - FontLibC fonts and font packs
    * - :doc:`graph`
      - Screen setup for Flash Apps
 
